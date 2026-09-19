@@ -201,7 +201,18 @@ def _secrets(server: McpServer) -> list[Finding]:
             f"manager instead",
             tool=server.name, arg=key,
             witness=f"{key}={str(value)[:4]}***"))
-    if server.transport in ("http", "sse") and not server.env.get("AUTH_TOKEN"):
+    if server.live and server.transport in ("http", "sse"):
+        # Observed, not inferred: we connected and asked.
+        if server.answered_without_credentials:
+            out.append(Finding(
+                "unauthenticated_transport", "critical",
+                "remote server lists tools to anonymous clients",
+                f"the server completed initialize and tools/list with no "
+                f"credential attached. Anyone who can reach {server.command} "
+                f"can enumerate, and likely call, its {len(server.tools)} tools",
+                tool=server.name,
+                witness="tools/list answered with no Authorization header"))
+    elif server.transport in ("http", "sse") and not server.env.get("AUTH_TOKEN"):
         out.append(Finding(
             "unauthenticated_transport", "high", "remote transport with no auth",
             f"transport is '{server.transport}' but the config carries no "

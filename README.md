@@ -341,7 +341,25 @@ python -m conformance.cli mcp --manifest server-manifest.json \
 ```
 
 Accepts a `tools/list` response, a `claude_desktop_config.json`, or a bundle of
-several servers. Three moves:
+several servers. Or skip the export and point it at the live server:
+
+```
+python -m conformance.cli mcp --server https://mcp.example.com/mcp                               --bearer-env MCP_TOKEN --out audit-out
+python -m conformance.cli mcp --server-cmd "npx -y @modelcontextprotocol/server-filesystem /tmp"                               --out audit-out
+```
+
+The live client performs the real MCP handshake (Streamable HTTP with JSON or
+SSE replies, or stdio) and follows `tools/list` pagination. It is structurally
+incapable of calling a tool: any method other than `initialize`,
+`notifications/initialized` and `tools/list` raises before reaching the wire.
+What it fetched is saved to `audit-out/manifest.json` (env values redacted) so
+the audit can be replayed and baselined offline with identical fingerprints.
+
+Auth becomes evidence rather than a guess: a remote server that answers
+`tools/list` with no credential is reported as a **critical** with a witness,
+and a server that demands and receives a token is not flagged at all.
+`--server-cmd` runs the given command on your machine; only use it on servers
+you would run anyway. Three moves:
 
 1. **Ingest** — normalise the manifest.
 2. **Synthesise** — derive a policy from the declared JSON Schemas. This is

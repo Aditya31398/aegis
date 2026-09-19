@@ -11,10 +11,9 @@ Ordered by whether it unblocks a user, not by how interesting it is.
 - [x] **Async fuzzing.** `fuzz --async` runs batches under `asyncio.gather`,
       cancels some mid-flight, and re-checks every invariant at each yield
       point. A planted check-then-charge race is a negative control.
-- [ ] **Live MCP ingest.** `--server http://host/mcp` that performs a real
-      `tools/list` handshake instead of requiring a saved manifest. This is the
-      difference between "send me your config" and "paste your URL", which is
-      most of the friction in an audit.
+- [x] **Live MCP ingest.** `mcp --server URL` (Streamable HTTP, JSON or SSE)
+      and `mcp --server-cmd CMD` (stdio). The client can only send
+      `initialize`/`tools/list`; anonymous listing is a witnessed critical.
 - [ ] **Effect inference from schema, not keywords.** Current inference reads
       tool names. Use the JSON Schema shape and the MCP annotations
       (`readOnlyHint`, `destructiveHint`, `idempotentHint`) where servers

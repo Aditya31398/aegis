@@ -122,7 +122,17 @@ def _mcp(args) -> int:
     from .mcp_checks import mcp_findings
     from .report import write_report
 
-    servers = load_servers(args.manifest)
+    outdir = Path(args.out)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        servers = _mcp_servers(args, outdir)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not any(s.tools for s in servers):
+        print("error: no tools discovered; nothing to audit", file=sys.stderr)
+        return 2
     policy = synthesize_policy(servers)
     registry = build_registry(servers)
 
@@ -132,8 +142,6 @@ def _mcp(args) -> int:
     report = AuditReport(findings=consolidate(findings),
                          accepted=load_baseline(args.baseline) if args.baseline else {})
 
-    outdir = Path(args.out)
-    outdir.mkdir(parents=True, exist_ok=True)
     hardened = write_hardened(servers, outdir / "hardened-policy.yaml")
     written = write_report(report, servers, outdir / "audit-report.md",
                            client=args.client, hardened_path=hardened.name)
@@ -148,6 +156,52 @@ def _mcp(args) -> int:
         return 1
     print(f"\nRESULT: PASS")
     return 0
+
+
+def _mcp_servers(args, outdir: Path):
+    """Servers from a saved manifest and/or live endpoints. Live results are
+    written to <out>/manifest.json so the audit can be replayed offline and
+    baselined without reconnecting."""
+    import json
+    import os
+
+    from aegis.adapters.mcp import load_servers
+    from aegis.adapters.mcp_client import (McpClientError, dedupe_names,
+                                           dump_manifest, fetch_http, fetch_stdio)
+
+    servers = list(load_servers(args.manifest)) if args.manifest else []
+    headers: dict[str, str] = {}
+    for h in args.header or []:
+        key, sep, value = h.partition(":")
+        if not sep:
+            raise ValueError(f"--header expects 'Name: value', got {h!r}")
+        headers[key.strip()] = value.strip()
+    if args.bearer_env:
+        token = os.environ.get(args.bearer_env)
+        if not token:
+            raise ValueError(f"--bearer-env: ${args.bearer_env} is not set")
+        headers["Authorization"] = f"Bearer {token}"
+
+    live = []
+    try:
+        for url in args.server or []:
+            print(f"connecting to {url} ...")
+            live.append(fetch_http(url, headers=headers, timeout=args.timeout))
+        for cmd in args.server_cmd or []:
+            print(f"launching {cmd} ...")
+            live.append(fetch_stdio(cmd, timeout=args.timeout))
+    except McpClientError as exc:
+        raise ValueError(f"live ingest failed: {exc}") from exc
+
+    if live:
+        for s in live:
+            print(f"  {s.name}: {len(s.tools)} tool(s) via {s.transport}")
+        path = outdir / "manifest.json"
+        path.write_text(json.dumps(dump_manifest(live), indent=2), encoding="utf-8")
+        print(f"  saved {path} (replay with --manifest)")
+    if not servers and not live:
+        raise ValueError("give --manifest, --server or --server-cmd")
+    return dedupe_names(servers + live)
 
 
 def main(argv=None) -> int:
@@ -191,8 +245,20 @@ def main(argv=None) -> int:
     r.add_argument("--constitution", default=None)
     r.set_defaults(fn=_ratify)
 
-    m = sub.add_parser("mcp", help="audit MCP servers from a manifest")
-    m.add_argument("--manifest", required=True)
+    m = sub.add_parser("mcp", help="audit MCP servers from a manifest or live endpoint")
+    m.add_argument("--manifest", default=None,
+                   help="tools/list response, client config, or audit bundle")
+    m.add_argument("--server", action="append",
+                   help="Streamable HTTP endpoint to handshake with (repeatable)")
+    m.add_argument("--server-cmd", action="append",
+                   help="stdio server command to launch and handshake with "
+                        "(repeatable). This RUNS the command locally.")
+    m.add_argument("--header", action="append",
+                   help="extra HTTP header for --server, 'Name: value' (repeatable)")
+    m.add_argument("--bearer-env", default=None,
+                   help="env var holding a bearer token for --server; keeps "
+                        "the secret out of shell history")
+    m.add_argument("--timeout", type=float, default=15.0)
     m.add_argument("--out", default="audit-out")
     m.add_argument("--client", default="")
     m.add_argument("--baseline", default=None)

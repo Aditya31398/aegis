@@ -38,6 +38,9 @@ class McpTool:
     name: str
     description: str = ""
     input_schema: dict[str, Any] = field(default_factory=dict)
+    # MCP tool annotations (readOnlyHint, destructiveHint, ...) as published.
+    # Carried through ingest; not yet used for inference.
+    annotations: dict[str, Any] = field(default_factory=dict)
 
     @property
     def properties(self) -> dict[str, dict]:
@@ -56,6 +59,9 @@ class McpServer:
     command: str = ""
     args: tuple[str, ...] = ()
     transport: str = "stdio"
+    # Set only by live ingest (adapters/mcp_client.py).
+    live: bool = False
+    answered_without_credentials: bool = False
 
 
 def load_servers(path: str | Path) -> list[McpServer]:
@@ -84,6 +90,9 @@ def load_servers(path: str | Path) -> list[McpServer]:
                 command=s.get("command", ""),
                 args=tuple(s.get("args") or ()),
                 transport=s.get("transport", "stdio"),
+                live=bool(s.get("live", False)),
+                answered_without_credentials=bool(
+                    s.get("answered_without_credentials", False)),
             )
             for s in raw["servers"]
         ]
@@ -100,6 +109,7 @@ def _tool(t: dict[str, Any]) -> McpTool:
         name=t["name"],
         description=t.get("description", "") or "",
         input_schema=t.get("inputSchema") or t.get("input_schema") or {},
+        annotations=dict(t.get("annotations") or {}),
     )
 
 

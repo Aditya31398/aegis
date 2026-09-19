@@ -22,7 +22,7 @@ which is what makes the tooling usable as a service.
 ```bash
 pip install -e ".[dev]"
 
-pytest -q                                                    # 132 tests, all must pass
+pytest -q                                                    # 152 tests, all must pass
 python -m conformance.cli ratify  --policy policies/base.yaml
 python -m conformance.cli verify  --suites suites --policy policies/base.yaml --require-coverage
 python -m conformance.cli fuzz    --policy policies/base.yaml --iterations 20
@@ -30,6 +30,7 @@ python -m conformance.cli fuzz    --policy policies/base.yaml --iterations 20 --
 python -m conformance.cli audit   --policy policies/base.yaml --baseline loopholes.baseline.yaml
 python -m conformance.cli drift   --baseline old.yaml --candidate policies/base.yaml
 python -m conformance.cli mcp     --manifest examples/sample_mcp_manifest.json --out audit-out
+python -m conformance.cli mcp     --server https://host/mcp --bearer-env MCP_TOKEN --out audit-out
 
 python examples/demo.py
 ```
@@ -58,7 +59,11 @@ failing, the fix is the code, not the test.
 5. **Rule ids are the public contract.** Tests pin `verdict.rule`, never the
    prose in `verdict.reason`. Reword reasons freely; renaming a rule id is a
    breaking change and needs the suites updated in the same commit.
-6. **Constitutional clauses have no waiver.** If a clause is inconvenient, the
+6. **The live MCP client never calls a tool.** `mcp_client._ALLOWED_METHODS`
+   is `initialize`, `notifications/initialized`, `tools/list` and nothing
+   else. Do not add `tools/call` "just to probe" — auditing a server by
+   running its destructive tools is an incident, not an audit.
+7. **Constitutional clauses have no waiver.** If a clause is inconvenient, the
    fix is to amend `constitution.yaml` in a visible diff, never to add a
    bypass flag.
 
@@ -90,6 +95,7 @@ aegis/
   constitution.py seven unwaivable clauses, checked at ratification
   guards/         capability, spawn, budget, data (PII + taint)
   adapters/mcp.py ingest → synthesize → harden
+  adapters/mcp_client.py  live handshake (HTTP/stdio), listing-only
 conformance/
   runner.py       scenario execution; asserts denials produced no side effect
   invariants.py   six properties re-checked after every fuzzed operation
