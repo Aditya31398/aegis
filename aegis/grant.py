@@ -84,6 +84,18 @@ class BudgetLedger:
                 node.tool_calls += calls
             return v
 
+    def record(self, usd: float = 0.0, tokens: int = 0) -> None:
+        """Book spend that has already happened (e.g. a model call that ran).
+
+        Unlike `charge`, this cannot be refused: a ledger that declined to record
+        real spend would under-report it. The overrun makes every later `check`
+        deny, which is what stops the next call.
+        """
+        with self._lock:
+            for node in self.chain():
+                node.usd += usd
+                node.tokens += tokens
+
     def refund(self, usd: float = 0.0, tokens: int = 0, calls: int = 0) -> None:
         with self._lock:
             for node in self.chain():

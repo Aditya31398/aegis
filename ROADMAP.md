@@ -46,6 +46,7 @@ Ordered by whether it unblocks a user, not by how interesting it is.
 
 ## Deliberately not doing
 
-- A dashboard or hosted service before anyone is paying.
+- A dashboard or hosted service before anyone is paying. (Observability is
+  delegated instead: `aegis.observe` feeds tools such as AgentDynamics.)
 - Runtime content filtering of model outputs. Different problem, crowded field,
   and it would dilute what this repo is about.

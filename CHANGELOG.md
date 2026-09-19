@@ -8,6 +8,28 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 
 ## [Unreleased]
 
+### Added
+- **Observability hooks** (`aegis.observe`). `register_context_provider(fn)` stamps
+  correlation ids (run id, trace id, workflow, node) into every audit record under
+  `details.ctx`; `enable_opentelemetry()` does it for the active OTel span.
+  `AuditLog.subscribe(fn)` streams each record after it is chained. A provider or
+  subscriber that raises is contained with a warning and can never change a verdict.
+  Records are unchanged when no provider is registered.
+- **Model-spend gating.** `Kernel.reserve_spend(grant, usd=, tokens=)` holds an
+  estimate against the grant's ledger and every ancestor's before a model call;
+  `Kernel.settle_spend(reservation, usd=, tokens=)` books the actual cost. An
+  exhausted budget or revoked grant refuses the reservation, so the call is never
+  made. New allow rules `budget.reserved` and `budget.settled`; denials reuse the
+  existing `budget.*` and `grant.revoked` rule ids. `BudgetLedger.record()` books
+  spend that already happened (it cannot be refused, so overruns are never hidden).
+- `dump_policy(policy)` (round-trips through `parse_policy`) and
+  `policy_digest(policy)`, a stable content fingerprint.
+
+### Fixed
+- `Kernel(audit=AuditLog(path=...))` silently discarded the caller's log: an empty
+  `AuditLog` is falsy (it defines `__len__`), so `audit or AuditLog()` replaced it
+  and the audit file was never written. Found by the AgentDynamics integration tests.
+
 ## [0.2.0] - 2026-09-19
 
 ### Added

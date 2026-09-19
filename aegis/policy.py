@@ -296,3 +296,65 @@ def _parse_policy(raw: dict[str, Any], base: Policy | None = None,
         version=int(raw.get("version", 1)),
         tools=tools, effects=effects, budget=budget, data=data, spawn=spawn,
     )
+
+
+# --------------------------------------------------------------------------
+# Serialisation
+# --------------------------------------------------------------------------
+
+_ARG_KEYS = ("matches", "prefix", "one_of", "max_len", "max_value", "forbid_matches")
+
+
+def dump_policy(policy: Policy) -> dict[str, Any]:
+    """Policy -> plain mapping that `parse_policy` turns back into an equal Policy.
+
+    Used to write generated policies to YAML and to fingerprint the policy a
+    run was governed by (`policy_digest`).
+    """
+    tools = []
+    for name in sorted(policy.tools):
+        rule = policy.tools[name]
+        entry: dict[str, Any] = {"name": name}
+        if rule.require_args:
+            entry["require_args"] = list(rule.require_args)
+        if not rule.deny_extra_args:
+            entry["deny_extra_args"] = False
+        args = {}
+        for arg in sorted(rule.args):
+            c = rule.args[arg]
+            d = {k: getattr(c, k) for k in _ARG_KEYS if getattr(c, k) is not None}
+            if "one_of" in d:
+                d["one_of"] = list(d["one_of"])
+            args[arg] = d
+        if args:
+            entry["args"] = args
+        tools.append(entry)
+    b, dp, sp = policy.budget, policy.data, policy.spawn
+    spawn: dict[str, Any] = {"max_depth": sp.max_depth, "max_fanout": sp.max_fanout,
+                             "max_descendants": sp.max_descendants,
+                             "child_budget_fraction": sp.child_budget_fraction}
+    if sp.allow_tools is not None:
+        spawn["allow_tools"] = sorted(sp.allow_tools)
+    return {
+        "name": policy.name,
+        "version": policy.version,
+        "effects": sorted(e.value for e in policy.effects),
+        "tools": {"allow": tools},
+        "budget": {"usd": b.usd, "tokens": b.tokens, "wall_clock_s": b.wall_clock_s,
+                   "tool_calls": b.tool_calls},
+        "data": {
+            "max_classification": dp.max_classification.name.lower(),
+            "egress": {"sinks": sorted(dp.egress_sinks),
+                       "max_classification": dp.egress_max_classification.name.lower(),
+                       "block_pii": sorted(dp.block_pii),
+                       "redact_instead_of_deny": dp.redact_instead_of_deny},
+        },
+        "spawn": spawn,
+    }
+
+
+def policy_digest(policy: Policy) -> str:
+    """Stable content fingerprint: equal policies have equal digests."""
+    import hashlib
+    import json
+    return hashlib.sha256(json.dumps(dump_policy(policy), sort_keys=True).encode()).hexdigest()[:16]

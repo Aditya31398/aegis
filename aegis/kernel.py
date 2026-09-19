@@ -19,16 +19,27 @@ from __future__ import annotations
 import asyncio
 import inspect
 import threading
+from dataclasses import dataclass
 from typing import Any, Sequence
 
 from .audit import AuditLog
-from .decision import PolicyViolation, Verdict
+from .decision import BudgetExhausted, PolicyViolation, Verdict
 from .grant import Grant, SpawnRequest
 from .guards import DEFAULT_GUARDS, DEFAULT_POST_GUARDS, Call
 from .policy import Policy, PolicyError
 from .registry import ToolRegistry
 
 SPAWN_TOOL = "agent.spawn"
+SPEND_TOOL = "model.spend"
+
+
+@dataclass(frozen=True)
+class SpendReservation:
+    """Budget held for a model call between `reserve_spend` and `settle_spend`."""
+    grant: Grant
+    usd: float
+    tokens: int
+    label: str
 
 
 class Kernel:
@@ -40,7 +51,9 @@ class Kernel:
         self.registry = registry
         self.guards = tuple(guards)
         self.post_guards = tuple(post_guards)
-        self.audit = audit or AuditLog()
+        # `audit or AuditLog()` would discard a caller's empty log: AuditLog has __len__, so a
+        # fresh file-backed log is falsy and its records silently went to a throwaway instance.
+        self.audit = audit if audit is not None else AuditLog()
         self.dry_run = dry_run          # conformance mode: never execute
         self._lock = threading.RLock()
 
@@ -188,6 +201,49 @@ class Kernel:
         """Spawning does no I/O; this exists so async callers never have to
         reach for the sync API mid-coroutine."""
         return self.spawn(parent, req)
+
+    # ------------------------------------------------------------------
+    # Model spend. A model call is not a tool call -- it has no implementation
+    # in the registry and nothing is executed here -- but it spends the same
+    # budget. Callers reserve an estimate before the request and settle the
+    # actual cost after it, so the ledger is a hard gate rather than a report.
+    # ------------------------------------------------------------------
+    def reserve_spend(self, grant: Grant, *, usd: float = 0.0, tokens: int = 0,
+                      label: str = "model") -> SpendReservation:
+        """Hold `usd`/`tokens` against the grant's ledger and every ancestor's.
+
+        Raises BudgetExhausted if the estimate does not fit, or PolicyViolation
+        (`grant.revoked`) if the grant or an ancestor has been revoked. A zero
+        estimate is a pure pre-flight check: it still denies an exhausted
+        budget or a passed deadline.
+        """
+        call = Call(tool=SPEND_TOOL, args={"label": label, "usd": usd, "tokens": tokens})
+        if not grant.is_active():
+            verdict = Verdict.deny("grant.revoked", f"grant {grant.grant_id} is revoked",
+                                   "capability")
+        else:
+            verdict = grant.ledger.charge(usd=usd, tokens=tokens, calls=0)
+            if verdict.allowed:
+                verdict = Verdict.allow("budget.reserved", "budget", usd=usd, tokens=tokens)
+        self._log(grant, call, verdict)
+        if not verdict.allowed:
+            exc = BudgetExhausted if verdict.rule.startswith("budget.") else PolicyViolation
+            raise exc(verdict, SPEND_TOOL, grant.agent_name)
+        return SpendReservation(grant, usd, tokens, label)
+
+    def settle_spend(self, reservation: SpendReservation, *, usd: float,
+                     tokens: int = 0) -> None:
+        """Replace the reservation with the actual cost. Always recorded, even
+        when it overruns: the spend already happened, and the overrun is what
+        makes the next reservation fail."""
+        g = reservation.grant
+        with self._lock:
+            g.ledger.refund(usd=reservation.usd, tokens=reservation.tokens, calls=0)
+            g.ledger.record(usd=usd, tokens=tokens)
+        self._log(g, Call(tool=SPEND_TOOL,
+                          args={"label": reservation.label, "usd": usd, "tokens": tokens}),
+                  Verdict.allow("budget.settled", "budget", usd=usd, tokens=tokens,
+                                reserved_usd=reservation.usd))
 
     # ------------------------------------------------------------------
     def revoke(self, grant: Grant, reason: str = "operator") -> None:

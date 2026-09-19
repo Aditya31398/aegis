@@ -117,6 +117,32 @@ aegis audit  --policy policies/base.yaml --format sarif --output aegis.sarif
 aegis drift  --baseline main-base.yaml --candidate policies/base.yaml
 ```
 
+## Observability: pairing with an APM
+
+Aegis decides what an agent *may* do; it deliberately ships no dashboard. Two hooks
+let an observability tool see every decision without being able to influence one:
+
+```python
+from aegis.observe import register_context_provider
+
+register_context_provider(lambda: {"run_id": current_run_id()})   # -> details.ctx on every record
+kernel.audit.subscribe(lambda rec: ship(rec))                       # after the record is chained
+```
+
+Model calls are not tools, but they spend the same budget. Reserve before the
+request and settle after it, and the ledger becomes a hard gate on model spend:
+
+```python
+r = kernel.reserve_spend(grant, usd=estimate, tokens=max_tokens)    # BudgetExhausted -> call never made
+kernel.settle_spend(r, usd=actual_cost, tokens=actual_tokens)
+```
+
+[AgentDynamics](https://github.com/Aditya31398/agentdynamics) uses exactly these
+hooks (`agentdynamics.integrations.aegis`): denials land in the task they happened
+in, model calls are gated by the Aegis budget, a watchdog revokes grants that keep
+probing a boundary, and observed behaviour is turned back into a tighter policy
+that `aegis ratify` and `aegis drift` verify.
+
 ## Supply chain
 
 Releases are built once in CI from a tag, published to PyPI through trusted

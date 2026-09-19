@@ -4,8 +4,8 @@ from .decision import (BudgetExhausted, Classification, Effect, PolicyViolation,
                        Verdict)
 from .grant import Budget, BudgetLedger, Grant, SpawnRequest
 from .guards import Call
-from .kernel import Kernel, build_kernel
-from .policy import Policy, PolicyError, load_policy, parse_policy
+from .kernel import Kernel, SpendReservation, build_kernel
+from .policy import Policy, PolicyError, dump_policy, load_policy, parse_policy, policy_digest
 from .registry import ToolRegistry, ToolSpec
 from .runtime import Agent, AsyncToolbox, AsyncToolProxy, Toolbox, ToolProxy
 
@@ -16,5 +16,5 @@ __all__ = [
     "BudgetExhausted", "Call", "Classification", "Effect", "Grant", "Kernel",
     "Policy", "PolicyError", "PolicyViolation", "SpawnRequest", "ToolProxy",
     "Toolbox", "ToolRegistry", "ToolSpec", "Verdict", "build_kernel",
-    "load_policy", "parse_policy",
+    "load_policy", "parse_policy", "dump_policy", "policy_digest", "SpendReservation",
 ]

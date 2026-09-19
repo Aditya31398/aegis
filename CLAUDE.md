@@ -23,7 +23,7 @@ which is what makes the tooling usable as a service.
 pip install -e ".[dev]"
 
 ruff check .
-pytest -q                                                    # 200 tests, all must pass
+pytest -q                                                    # 213 tests, all must pass
 aegis ratify  --policy policies/base.yaml
 aegis verify  --suites suites --policy policies/base.yaml --require-coverage
 aegis fuzz    --policy policies/base.yaml --iterations 20
@@ -104,6 +104,7 @@ aegis/
   policy.py       YAML policy model, `extends` may only tighten
   constitution.py seven unwaivable clauses, checked at ratification
   guards/         capability, spawn, budget, data (PII + taint)
+  observe.py      context providers + audit subscribers; may add correlation data, never change a verdict
   adapters/mcp.py ingest → synthesize → harden
   adapters/mcp_client.py  live handshake (HTTP/stdio), listing-only
   constitution.yaml   shipped in the wheel
