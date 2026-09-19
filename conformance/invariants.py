@@ -252,10 +252,20 @@ async def _afuzz(policy: Policy, *, rounds: int, batch: int, seed: int,
             violations.append(Violation("kernel_crash",
                                         f"{type(exc).__name__}: {exc}"))
 
+    def snapshot() -> tuple[int, int, int]:
+        return (len(kernel.audit), len(recorder.calls), root.ledger.tool_calls)
+
     async def watcher(stop: asyncio.Event) -> None:
-        # Re-check at every scheduling point while the batch is in flight.
+        # Yield at every scheduling point while the batch is in flight, but
+        # only re-check when observable state moved. Checking on every spin
+        # made each spin O(audit length) and starved the worker threads of
+        # the GIL -- the run went quadratic on slow CI runners.
+        last = None
         while not stop.is_set():
-            violations.extend(_check_all(root, kernel, recorder))
+            now = snapshot()
+            if now != last:
+                violations.extend(_check_all(root, kernel, recorder))
+                last = now
             await asyncio.sleep(0)
 
     for r in range(rounds):
