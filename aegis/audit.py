@@ -77,7 +77,7 @@ class AuditLog:
             )
             self._records.append(rec)
             if self._path:
-                with self._path.open("a") as fh:
+                with self._path.open("a", encoding="utf-8") as fh:
                     fh.write(json.dumps(asdict(rec), default=str) + "\n")
             return rec
 

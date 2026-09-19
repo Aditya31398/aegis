@@ -457,7 +457,7 @@ def load_baseline(path: str | Path) -> dict[str, str]:
     p = Path(path)
     if not p.exists():
         return {}
-    raw = yaml.safe_load(p.read_text()) or {}
+    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     return {e["fingerprint"]: e.get("reason", "") for e in raw.get("accepted", [])}
 
 

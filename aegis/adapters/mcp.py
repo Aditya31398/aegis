@@ -60,7 +60,7 @@ class McpServer:
 
 def load_servers(path: str | Path) -> list[McpServer]:
     """Accepts a tools/list response, a client config, or an audit bundle."""
-    raw = json.loads(Path(path).read_text())
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
 
     if "mcpServers" in raw:                      # claude_desktop_config.json style
         return [

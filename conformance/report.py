@@ -164,5 +164,5 @@ def render_markdown(report: AuditReport, servers: list[McpServer], *,
 def write_report(report: AuditReport, servers: list[McpServer], path: str | Path,
                  **kw) -> Path:
     path = Path(path)
-    path.write_text(render_markdown(report, servers, **kw))
+    path.write_text(render_markdown(report, servers, **kw), encoding="utf-8")
     return path

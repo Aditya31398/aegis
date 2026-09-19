@@ -52,7 +52,7 @@ runs:
 
     - name: Install aegis
       shell: bash
-      run: pip install --quiet "aegis-guard @ git+https://github.com/OWNER/aegis@main"
+      run: pip install --quiet "aegis-guard @ git+https://github.com/Aditya31398/aegis@main"
 
     - name: Run audit
       id: audit

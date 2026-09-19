@@ -76,7 +76,7 @@ def _step(raw: dict[str, Any]) -> Step:
 
 def load_suite(path: str | Path) -> Suite:
     path = Path(path)
-    raw = yaml.safe_load(path.read_text())
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     cases = tuple(
         Case(
             id=c["id"],

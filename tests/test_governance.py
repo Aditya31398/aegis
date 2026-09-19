@@ -24,7 +24,7 @@ BASELINE = ROOT / "loopholes.baseline.yaml"
 
 
 def _raw():
-    return copy.deepcopy(yaml.safe_load(BASE.read_text()))
+    return copy.deepcopy(yaml.safe_load(BASE.read_text(encoding="utf-8")))
 
 
 def _merge(a: dict, b: dict) -> dict:
@@ -101,7 +101,7 @@ def test_no_new_loopholes():
 
 
 def test_baseline_entries_all_have_reasons_and_still_apply():
-    raw = yaml.safe_load(BASELINE.read_text())
+    raw = yaml.safe_load(BASELINE.read_text(encoding="utf-8"))
     report = hunt(load_policy(BASE), suite_paths=SUITES)
     live = {f.fingerprint for f in report.findings}
     for entry in raw["accepted"]:

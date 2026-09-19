@@ -187,7 +187,7 @@ _TOP_LEVEL = {"name", "version", "tools", "effects", "budget", "data", "spawn", 
 
 def load_policy(path: str | Path) -> Policy:
     path = Path(path)
-    raw = yaml.safe_load(path.read_text()) or {}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     base = None
     if "extends" in raw:
         base = load_policy(path.parent / raw["extends"])

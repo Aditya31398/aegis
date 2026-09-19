@@ -87,7 +87,7 @@ def test_widening_is_detected(mutation, expected_code):
     """Each way of weakening the policy must be caught by name."""
     import copy
     import yaml
-    raw = yaml.safe_load(BASE.read_text())
+    raw = yaml.safe_load(BASE.read_text(encoding="utf-8"))
     merged = _deep_merge(copy.deepcopy(raw), mutation)
     if "tools" in mutation:  # append rather than replace the allowlist
         merged["tools"]["allow"] = raw["tools"]["allow"] + mutation["tools"]["allow"]
@@ -107,7 +107,7 @@ def _deep_merge(a: dict, b: dict) -> dict:
 
 def test_constraint_relaxation_is_detected():
     import yaml
-    raw = yaml.safe_load(BASE.read_text())
+    raw = yaml.safe_load(BASE.read_text(encoding="utf-8"))
     for entry in raw["tools"]["allow"]:
         if entry["name"] == "fs.read":
             entry["args"]["path"]["prefix"] = "/"          # escape the sandbox
@@ -124,7 +124,7 @@ def test_kernel_is_the_only_execution_path():
     'every effect is mediated' guarantee is void. Fail loudly."""
     offenders = []
     for py in (ROOT / "aegis").rglob("*.py"):
-        tree = ast.parse(py.read_text())
+        tree = ast.parse(py.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if (isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)

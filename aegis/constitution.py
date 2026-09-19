@@ -191,7 +191,7 @@ class Constitution:
 
     @staticmethod
     def load(path: str | Path) -> "Constitution":
-        raw = yaml.safe_load(Path(path).read_text())
+        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
         return Constitution(version=int(raw.get("version", 1)),
                             clauses={c["id"]: c for c in raw["clauses"]},
                             source=str(path))
