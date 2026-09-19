@@ -7,12 +7,12 @@ from .guards import Call
 from .kernel import Kernel, build_kernel
 from .policy import Policy, PolicyError, load_policy, parse_policy
 from .registry import ToolRegistry, ToolSpec
-from .runtime import Agent, Toolbox, ToolProxy
+from .runtime import Agent, AsyncToolbox, AsyncToolProxy, Toolbox, ToolProxy
 
 __version__ = "0.1.0"
 
 __all__ = [
-    "Agent", "AuditLog", "AuditRecord", "Budget", "BudgetLedger",
+    "Agent", "AsyncToolbox", "AsyncToolProxy", "AuditLog", "AuditRecord", "Budget", "BudgetLedger",
     "BudgetExhausted", "Call", "Classification", "Effect", "Grant", "Kernel",
     "Policy", "PolicyError", "PolicyViolation", "SpawnRequest", "ToolProxy",
     "Toolbox", "ToolRegistry", "ToolSpec", "Verdict", "build_kernel",

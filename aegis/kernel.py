@@ -1,10 +1,11 @@
 """The kernel: the one place an effect can happen.
 
-Design rule -- there is exactly one function in this codebase that calls a
-registered tool implementation (`Kernel._execute`). Everything else must route
-through `Kernel.invoke`, which runs the guard chain first. If you add a second
-call site, the guarantee is gone; `tests/test_kernel_is_sole_callsite.py`
-asserts this statically.
+Design rule -- exactly two functions in this codebase call a registered tool
+implementation: `Kernel._execute` (sync) and `Kernel._aexecute` (async). Both
+are reached only through `invoke` / `ainvoke`, which share one admission path
+(`_admit`) and one post-guard path (`_release`), so the sync and async entry
+points cannot drift apart. If you add a third call site, the guarantee is gone;
+`test_kernel_is_the_only_execution_path` asserts this statically.
 
 Ordering of the chain matters:
   1. pre-guards  -- may deny. Any exception is caught and converted to DENY.
@@ -15,6 +16,8 @@ Ordering of the chain matters:
 """
 from __future__ import annotations
 
+import asyncio
+import inspect
 import threading
 from typing import Any, Iterable, Sequence
 
@@ -60,6 +63,34 @@ class Kernel:
 
     # ------------------------------------------------------------------
     def invoke(self, grant: Grant, tool: str, /, **args) -> Any:
+        spec, call = self._admit(grant, tool, args, is_async=False)
+        if self.dry_run:
+            return None
+        result = self._execute(spec, call)
+        if inspect.isawaitable(result):
+            # A sync-registered tool that hands back a coroutine. Nothing has
+            # run yet; refuse rather than return an unmediated awaitable.
+            if inspect.iscoroutine(result):
+                result.close()
+            self._deny_async(grant, call)
+        return self._release(grant, call, result)
+
+    async def ainvoke(self, grant: Grant, tool: str, /, **args) -> Any:
+        """Async twin of `invoke`. Same guards, same ledger, same audit.
+
+        Coroutine tools are awaited on the running loop; plain tools run in a
+        worker thread so a blocking implementation cannot stall the loop.
+        """
+        spec, call = self._admit(grant, tool, args, is_async=True)
+        if self.dry_run:
+            return None
+        result = await self._aexecute(spec, call)
+        return self._release(grant, call, result)
+
+    # ------------------------------------------------------------------
+    def _admit(self, grant: Grant, tool: str, args: dict, *, is_async: bool):
+        """Everything before execution. Raises PolicyViolation or returns
+        (spec, call) with the budget already charged."""
         call = Call(tool=tool, args=dict(args))
         spec = self.registry.spec(tool)
         if spec is not None:
@@ -84,6 +115,14 @@ class Kernel:
                 "registry.unknown_tool",
                 f"'{tool}' is policy-allowed but not registered", "kernel")
 
+        # A coroutine tool invoked synchronously would return an unawaited
+        # coroutine: the effect would escape the post-guards. Refuse up front,
+        # before any budget is charged.
+        if verdict.allowed and spec.is_async and not is_async:
+            verdict = Verdict.deny(
+                "kernel.async_tool_requires_ainvoke",
+                f"'{tool}' is a coroutine tool; call it with ainvoke()", "kernel")
+
         self._log(grant, call, verdict)
         if not verdict.allowed:
             raise PolicyViolation(verdict, tool, grant.agent_name)
@@ -92,12 +131,10 @@ class Kernel:
         if not charged.allowed:
             self._log(grant, call, charged)
             raise PolicyViolation(charged, tool, grant.agent_name)
+        return spec, call
 
-        if self.dry_run:
-            return None
-
-        result = self._execute(spec, call)
-
+    def _release(self, grant: Grant, call: Call, result: Any) -> Any:
+        """Post-guards. A denial here discards the result."""
         for pg in self.post_guards:
             try:
                 pv = pg.inspect(grant, call, result)
@@ -107,13 +144,27 @@ class Kernel:
                                   getattr(pg, "name", "unknown"))
             if not pv.allowed:
                 self._log(grant, call, pv)
-                raise PolicyViolation(pv, tool, grant.agent_name)
-
+                raise PolicyViolation(pv, call.tool, grant.agent_name)
         return result
 
-    # -- THE ONLY CALL SITE -------------------------------------------
+    def _deny_async(self, grant: Grant, call: Call) -> None:
+        verdict = Verdict.deny(
+            "kernel.async_tool_requires_ainvoke",
+            f"'{call.tool}' returned an awaitable; call it with ainvoke()", "kernel")
+        self._log(grant, call, verdict)
+        raise PolicyViolation(verdict, call.tool, grant.agent_name)
+
+    # -- THE ONLY TWO CALL SITES --------------------------------------
     def _execute(self, spec, call: Call) -> Any:
         return spec.fn(**call.args)
+
+    async def _aexecute(self, spec, call: Call) -> Any:
+        if spec.is_async:
+            return await spec.fn(**call.args)
+        result = await asyncio.to_thread(self._execute, spec, call)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
 
     # ------------------------------------------------------------------
     def spawn(self, parent: Grant, req: SpawnRequest) -> Grant:
@@ -132,6 +183,11 @@ class Kernel:
             raise PolicyViolation(verdict, SPAWN_TOOL, parent.agent_name)
         parent.ledger.charge(calls=1)
         return child
+
+    async def aspawn(self, parent: Grant, req: SpawnRequest) -> Grant:
+        """Spawning does no I/O; this exists so async callers never have to
+        reach for the sync API mid-coroutine."""
+        return self.spawn(parent, req)
 
     # ------------------------------------------------------------------
     def revoke(self, grant: Grant, reason: str = "operator") -> None:

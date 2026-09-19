@@ -22,7 +22,7 @@ which is what makes the tooling usable as a service.
 ```bash
 pip install -e ".[dev]"
 
-pytest -q                                                    # 107 tests, all must pass
+pytest -q                                                    # 124 tests, all must pass
 python -m conformance.cli ratify  --policy policies/base.yaml
 python -m conformance.cli verify  --suites suites --policy policies/base.yaml --require-coverage
 python -m conformance.cli fuzz    --policy policies/base.yaml --iterations 20
@@ -38,10 +38,13 @@ python examples/demo.py
 These are load-bearing. Each has a test that fails loudly; if one starts
 failing, the fix is the code, not the test.
 
-1. **`Kernel._execute` is the only call site that invokes a tool
-   implementation.** `test_kernel_is_the_only_execution_path` parses the AST of
-   every file under `aegis/` and fails if a second `spec.fn(...)` appears. The
-   whole "every effect is mediated" claim rests on this.
+1. **`Kernel._execute` and `Kernel._aexecute` are the only places a tool
+   implementation is touched.** `test_kernel_is_the_only_execution_path` parses
+   the AST of every file under `aegis/` and fails on *any* `.fn` attribute
+   access outside those two functions — a call, a `to_thread(spec.fn)`, a
+   `partial(spec.fn)`. `invoke` and `ainvoke` share `_admit` (pre-guards,
+   budget) and `_release` (post-guards); never give the async path its own
+   copy of either. The whole "every effect is mediated" claim rests on this.
 2. **Agents never hold a callable.** They hold a `ToolProxy` bound to
    `(kernel, grant, tool_name)`. Do not add an attribute to `Agent` that
    exposes a registered implementation.
@@ -110,7 +113,9 @@ Honest list. Do not paper over these.
    probing silently.
 4. **`ArgConstraint.intersect` composes regexes with lookahead.** Correct but
    unreadable; a proper intersection would be better.
-5. **No async.** The kernel is synchronous. Real agent runtimes are not.
+5. **The fuzzer only drives the sync path.** `ainvoke` shares admission and
+   post-guards with `invoke`, and `tests/test_async.py` pins parity, but the
+   invariant fuzzer does not yet interleave concurrent async calls.
 
 ## What not to build yet
 

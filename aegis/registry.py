@@ -7,6 +7,7 @@ code path from agent to effect that skips the guard chain.
 """
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -21,6 +22,12 @@ class ToolSpec:
     classification: Classification = Classification.PUBLIC
     cost_usd: float = 0.0
     description: str = ""
+    is_async: bool = False
+
+
+def _is_coroutine_callable(fn: Callable[..., Any]) -> bool:
+    return (inspect.iscoroutinefunction(fn)
+            or inspect.iscoroutinefunction(getattr(fn, "__call__", None)))
 
 
 class ToolRegistry:
@@ -38,6 +45,7 @@ class ToolRegistry:
             effects=frozenset(Effect(e) for e in effects),
             classification=Classification.parse(classification),
             cost_usd=cost_usd, description=description,
+            is_async=_is_coroutine_callable(fn),
         )
 
     def tool(self, name: str, **kw):

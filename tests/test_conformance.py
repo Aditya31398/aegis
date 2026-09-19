@@ -119,19 +119,47 @@ def test_constraint_relaxation_is_detected():
 # ----------------------------------------------------------------------
 # 5. Structural guarantee: exactly one call site reaches a tool impl.
 # ----------------------------------------------------------------------
-def test_kernel_is_the_only_execution_path():
-    """If someone adds a second `spec.fn(...)` call anywhere in aegis/, the
-    'every effect is mediated' guarantee is void. Fail loudly."""
+_CALL_SITES = {"_execute", "_aexecute"}
+
+
+def _execution_path_offenders(files, root):
+    """Tool implementations may be touched only inside Kernel._execute and
+    Kernel._aexecute. Not just *called* -- any `.fn` attribute access counts,
+    because `asyncio.to_thread(spec.fn, ...)` or `functools.partial(spec.fn)`
+    is a call site the guard chain never sees."""
     offenders = []
-    for py in (ROOT / "aegis").rglob("*.py"):
+    for py in files:
         tree = ast.parse(py.read_text(encoding="utf-8"))
+        allowed: set[int] = set()
+        if py.name == "kernel.py":
+            for fn in ast.walk(tree):
+                if (isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and fn.name in _CALL_SITES):
+                    allowed |= {id(n) for n in ast.walk(fn)}
         for node in ast.walk(tree):
-            if (isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "fn"):
-                if not (py.name == "kernel.py"):
-                    offenders.append(f"{py.relative_to(ROOT)}:{node.lineno}")
-    assert not offenders, f"tool implementations invoked outside the kernel: {offenders}"
+            if (isinstance(node, ast.Attribute) and node.attr == "fn"
+                    and id(node) not in allowed):
+                offenders.append(f"{py.relative_to(root)}:{node.lineno}")
+    return offenders
+
+
+def test_kernel_is_the_only_execution_path():
+    offenders = _execution_path_offenders((ROOT / "aegis").rglob("*.py"), ROOT)
+    assert not offenders, f"tool implementations reached outside the kernel: {offenders}"
+
+
+@pytest.mark.parametrize("src", [
+    # smuggled through a thread pool, inside kernel.py but outside a call site
+    "import asyncio\nclass Kernel:\n"
+    "    async def fast(self, spec):\n        return await asyncio.to_thread(spec.fn)\n",
+    # a plain second call site
+    "class Kernel:\n    def shortcut(self, spec, a):\n        return spec.fn(**a)\n",
+])
+def test_execution_path_check_has_teeth(tmp_path, src):
+    """Negative control: the check must flag a planted bypass."""
+    planted = tmp_path / "kernel.py"
+    planted.write_text(src, encoding="utf-8")
+    assert _execution_path_offenders([planted], tmp_path)
 
 
 def test_agent_cannot_reach_raw_callable():

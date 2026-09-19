@@ -2,8 +2,9 @@
 
 An Agent holds a Grant and a Kernel -- nothing else that can cause an effect.
 `agent.tools.http_get(...)` resolves to a ToolProxy which calls
-`kernel.invoke(grant, ...)`. There is no attribute on Agent that exposes a
-registered implementation.
+`kernel.invoke(grant, ...)`; `await agent.atools.http_get(...)` resolves to an
+AsyncToolProxy which awaits `kernel.ainvoke(grant, ...)`. There is no attribute
+on Agent that exposes a registered implementation.
 """
 from __future__ import annotations
 
@@ -31,23 +32,42 @@ class ToolProxy:
         return f"<ToolProxy {self._name} grant={self._grant.grant_id}>"
 
 
+class AsyncToolProxy(ToolProxy):
+    """Awaitable stand-in. Same binding, routed through `Kernel.ainvoke`."""
+
+    __slots__ = ()
+
+    async def __call__(self, **kwargs) -> Any:
+        return await self._kernel.ainvoke(self._grant, self._name, **kwargs)
+
+    def __repr__(self) -> str:
+        return f"<AsyncToolProxy {self._name} grant={self._grant.grant_id}>"
+
+
 class Toolbox:
     """Attribute access over the tools a grant actually holds."""
+
+    _proxy: type[ToolProxy] = ToolProxy
 
     def __init__(self, kernel: Kernel, grant: Grant):
         self._kernel, self._grant = kernel, grant
 
     def __getattr__(self, item: str) -> ToolProxy:
-        name = item.replace("__", ".")
-        return ToolProxy(self._kernel, self._grant, name)
+        if item.startswith("_"):
+            raise AttributeError(item)
+        return self._proxy(self._kernel, self._grant, item.replace("__", "."))
 
     def __getitem__(self, name: str) -> ToolProxy:
-        return ToolProxy(self._kernel, self._grant, name)
+        return self._proxy(self._kernel, self._grant, name)
 
     def manifest(self) -> list[dict[str, str]]:
         """What you put in the agent's system prompt. Advisory only --
         the kernel is what actually enforces it."""
         return self._kernel.registry.describe(self._grant.policy.tool_names)
+
+
+class AsyncToolbox(Toolbox):
+    _proxy = AsyncToolProxy
 
 
 class Agent:
@@ -57,6 +77,7 @@ class Agent:
         self.grant = grant
         self.kernel = kernel
         self.tools = Toolbox(kernel, grant)
+        self.atools = AsyncToolbox(kernel, grant)
 
     @property
     def name(self) -> str:
@@ -68,6 +89,14 @@ class Agent:
         req = SpawnRequest(name=name, tools=frozenset(tools),
                            budget_fraction=budget_fraction, role=role)
         child_grant = self.kernel.spawn(self.grant, req)
+        return (cls or Agent)(child_grant, self.kernel)
+
+    async def aspawn(self, name: str, tools: Iterable[str], *,
+                     budget_fraction: float = 0.5, role: str = "worker",
+                     cls: type["Agent"] | None = None) -> "Agent":
+        req = SpawnRequest(name=name, tools=frozenset(tools),
+                           budget_fraction=budget_fraction, role=role)
+        child_grant = await self.kernel.aspawn(self.grant, req)
         return (cls or Agent)(child_grant, self.kernel)
 
     def run(self, *a, **kw) -> Any:                     # pragma: no cover

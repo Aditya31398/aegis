@@ -4,10 +4,12 @@ Ordered by whether it unblocks a user, not by how interesting it is.
 
 ## Next (pick up here)
 
-- [ ] **Async kernel.** `Kernel.ainvoke` / `aspawn` alongside the sync path.
-      Real agent runtimes are async; today they have to bridge. Keep the single
-      call-site invariant: one sync `_execute`, one async `_aexecute`, and
-      extend the AST test to cover both.
+- [x] **Async kernel.** `Kernel.ainvoke` / `aspawn`, `agent.atools`. Coroutine
+      tools are awaited, blocking tools run in a worker thread, and a coroutine
+      tool called through sync `invoke` is denied
+      (`kernel.async_tool_requires_ainvoke`) before any budget is charged.
+- [ ] **Async fuzzing.** Extend `conformance/invariants.py` to run workloads
+      under `asyncio.gather` so interleavings are checked, not just parity.
 - [ ] **Live MCP ingest.** `--server http://host/mcp` that performs a real
       `tools/list` handshake instead of requiring a saved manifest. This is the
       difference between "send me your config" and "paste your URL", which is

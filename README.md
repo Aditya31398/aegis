@@ -28,6 +28,13 @@ implementation runs through `Kernel.invoke`, which runs the guard chain first.
 AST of every file in `aegis/` and fails the build if a second call site to a
 tool implementation ever appears.
 
+The same holds for async runtimes. `await kernel.ainvoke(grant, tool, **args)`
+(or `await agent.atools.fs__read(path=...)`) goes through the identical guard
+chain, ledger and audit log; coroutine tools are awaited, blocking tools run
+off the event loop, and calling a coroutine tool through the sync `invoke` is
+denied as `kernel.async_tool_requires_ainvoke` rather than leaking an
+unmediated awaitable.
+
 So the guarantee is scoped honestly: **an agent can attempt anything; it cannot
 *cause* anything outside its grant.** No framework can stop a model from
 generating a bad tool call. This one stops the call from executing.
@@ -38,7 +45,7 @@ Agent ──> ToolProxy ──> Kernel.invoke
                              ├─ guards (fail-closed, first DENY wins)
                              │    capability → spawn → budget → data
                              ├─ budget charge (reserved before execution)
-                             ├─ spec.fn(**args)     ← THE ONLY CALL SITE
+                             ├─ _execute / _aexecute ← THE ONLY CALL SITES
                              ├─ post-guards (classification ceiling, taint)
                              └─ audit record (hash-chained)
 ```
