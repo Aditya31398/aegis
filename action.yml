@@ -21,7 +21,7 @@ inputs:
     required: false
     default: ""
   bearer-token:
-    description: "Bearer token for `server`. Pass a secret: ${{ secrets.MCP_TOKEN }}."
+    description: "Bearer token for `server`. Pass it from a repository secret, never inline."
     required: false
     default: ""
   baseline:
