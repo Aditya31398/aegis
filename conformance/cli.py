@@ -18,7 +18,7 @@ from aegis.policy import load_policy
 from .drift import check_drift
 from .fixtures import build_fixture_registry
 from .loopholes import AuditReport, consolidate, format_audit, hunt
-from .invariants import fuzz
+from .invariants import afuzz, fuzz
 from .runner import ConformanceRunner, format_report
 from .spec import load_suite
 
@@ -66,7 +66,11 @@ def _fuzz(args) -> int:
     policy = load_policy(args.policy)
     bad = 0
     for seed in range(args.iterations):
-        vs = fuzz(policy, steps=args.steps, seed=seed)
+        if args.concurrent:
+            vs = afuzz(policy, rounds=max(1, args.steps // args.batch),
+                       batch=args.batch, seed=seed)
+        else:
+            vs = fuzz(policy, steps=args.steps, seed=seed)
         if vs:
             bad += len(vs)
             print(f"seed {seed}: {len(vs)} invariant violation(s)")
@@ -167,6 +171,11 @@ def main(argv=None) -> int:
     f.add_argument("--policy", required=True)
     f.add_argument("--iterations", type=int, default=10)
     f.add_argument("--steps", type=int, default=300)
+    f.add_argument("--async", dest="concurrent", action="store_true",
+                   help="drive ainvoke/aspawn in concurrent batches, checking "
+                        "invariants while calls are in flight")
+    f.add_argument("--batch", type=int, default=12,
+                   help="operations launched together per round (with --async)")
     f.set_defaults(fn=_fuzz)
 
     a = sub.add_parser("audit", help="hunt for loopholes")

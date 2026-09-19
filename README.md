@@ -130,11 +130,25 @@ not merely "an error was returned".
 ### 2. Invariants under fuzz (`conformance/invariants.py`)
 
 A random workload generator drives the kernel with thousands of arbitrary
-call/spawn/revoke sequences using hostile argument payloads. Six invariants are
-re-checked after *every* operation:
+call/spawn/revoke sequences, half hostile payloads and half well-formed calls
+the policy admits. Seven invariants are re-checked after *every* operation:
 
 `attenuation` · `depth_bound` · `budget_conservation` · `no_effect_on_deny` ·
-`audit_chain` · `revocation_is_total`
+`every_effect_was_charged` · `audit_chain` · `revocation_is_total`
+
+`fuzz --async` drives the same invariants through `ainvoke`/`aspawn`: each
+round launches a batch concurrently, cancels some calls mid-flight, and a
+watcher task re-checks every invariant at each scheduling point, so the kernel
+is observed *during* calls, not only between them. Its negative control is a
+planted kernel that checks the budget, awaits the tool, then charges — a
+check-then-act race the fuzzer must catch.
+
+Writing that control exposed a weakness in the fuzzer itself: the workload was
+almost entirely hostile, so nearly every call died at the guards, budgets were
+never exhausted, and the budget invariants were green because the ledger barely
+moved. The planted race was caught on 1 seed in 4. Adding well-formed calls
+raised that to 4 in 6, and `test_fuzz_workload_reaches_budget_exhaustion` now
+fails if the workload ever stops reaching an exhausted budget.
 
 Any exception that isn't a `PolicyViolation` is a framework bug and fails the
 run. This layer found a real one during development: `agent.spawn` routed

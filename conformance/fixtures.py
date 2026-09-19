@@ -7,6 +7,8 @@ truth the runner checks against.
 """
 from __future__ import annotations
 
+import asyncio
+import random
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -61,10 +63,16 @@ _COST: dict[str, float] = {"db.query": 0.02, "http.post": 0.01}
 
 def build_fixture_registry(policy: Policy,
                            recorder: SideEffectRecorder | None = None,
-                           extra_tools: dict[str, Any] | None = None
+                           extra_tools: dict[str, Any] | None = None,
+                           *, async_rng: random.Random | None = None
                            ) -> tuple[ToolRegistry, SideEffectRecorder]:
     """Register a recorder for every tool the policy mentions, plus a set of
-    off-policy tools so 'not granted' paths are testable."""
+    off-policy tools so 'not granted' paths are testable.
+
+    With `async_rng`, each tool is randomly registered either as a coroutine
+    that yields to the loop a random number of times (so concurrent calls
+    interleave) or as a plain function (so `ainvoke` takes the thread path).
+    """
     rec = recorder or SideEffectRecorder()
     reg = ToolRegistry()
 
@@ -76,7 +84,9 @@ def build_fixture_registry(policy: Policy,
     for name in sorted(known):
         reg.register(
             name,
-            _make(name, rec, (extra_tools or {}).get(name)),
+            (_make_async(name, rec, (extra_tools or {}).get(name), async_rng)
+             if async_rng is not None and async_rng.random() < 0.7
+             else _make(name, rec, (extra_tools or {}).get(name))),
             effects=_EFFECTS.get(name, {Effect.COMPUTE}),
             classification=_CLASSIFICATION.get(name, Classification.PUBLIC),
             cost_usd=_COST.get(name, 0.001),
@@ -95,3 +105,16 @@ def _make(name: str, rec: SideEffectRecorder, override: Any):
         return _RESPONSES.get(name, {"ok": True, "tool": name})
     _fn.__name__ = name.replace(".", "_")
     return _fn
+
+
+def _make_async(name: str, rec: SideEffectRecorder, override: Any,
+                rng: random.Random):
+    sync = _make(name, rec, override)
+    yields = rng.randint(0, 4)
+
+    async def _afn(**kwargs):
+        for _ in range(yields):
+            await asyncio.sleep(0)
+        return sync(**kwargs)
+    _afn.__name__ = sync.__name__
+    return _afn

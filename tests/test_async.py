@@ -220,3 +220,68 @@ def test_async_toolbox_exposes_no_callable():
         agent.atools._kernel_impl       # private names never become proxies
     assert asyncio.run(agent.atools.fs__read(path="/workspace/a")) == \
         "workspace file contents"
+
+
+# ----------------------------------------------------------------------
+# Async fuzzing: invariants re-checked while calls are in flight
+# ----------------------------------------------------------------------
+from conformance import afuzz  # noqa: E402
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_invariants_hold_under_async_fuzz(seed):
+    violations = afuzz(load_policy(BASE), rounds=40, batch=12, seed=seed)
+    assert not violations, [f"{v.invariant}: {v.detail}" for v in violations]
+
+
+class _CheckThenChargeKernel(Kernel):
+    """Planted bug: checks the budget, awaits the tool, charges afterwards.
+    Sequentially this is indistinguishable from the real kernel; under
+    concurrency every in-flight call passes the same stale check."""
+
+    async def ainvoke(self, grant, tool, /, **args):
+        ledger = grant.ledger
+        ledger.charge = ledger.check            # admit without reserving
+        try:
+            spec, call = self._admit(grant, tool, args, is_async=True)
+        finally:
+            del ledger.charge
+        result = await self._aexecute(spec, call)
+        ledger.charge(usd=call.est_usd, tokens=call.est_tokens, calls=1)
+        return self._release(grant, call, result)
+
+
+def _tight_policy():
+    raw = copy.deepcopy(yaml.safe_load(BASE.read_text(encoding="utf-8")))
+    raw["budget"]["tool_calls"] = 30
+    return parse_policy(raw)
+
+
+def test_async_fuzz_catches_check_then_charge_race():
+    """Negative control: a kernel that charges *after* awaiting the tool lets
+    an effect exist unpaid-for. The fuzzer must find it on most seeds."""
+    caught = sum(
+        any(v.invariant == "every_effect_was_charged"
+            for v in afuzz(_tight_policy(), rounds=20, batch=12, seed=s,
+                           kernel_factory=_CheckThenChargeKernel))
+        for s in range(6))
+    assert caught >= 3, f"planted race found on only {caught}/6 seeds"
+
+
+def test_fuzz_workload_reaches_budget_exhaustion():
+    """The fuzzer is only as good as the states it reaches. If the workload
+    stops admitting calls (e.g. a policy tightening makes every benign call
+    fail), budget invariants go vacuously green. Guard against that."""
+    from conformance import invariants as inv
+    made = []
+
+    def factory(reg):
+        made.append(Kernel(reg))
+        return made[-1]
+
+    assert not afuzz(_tight_policy(), rounds=20, batch=12, seed=0,
+                     kernel_factory=factory)
+    rules = {r.rule for r in made[0].audit.records}
+    assert "budget.tool_calls_exceeded" in rules
+    assert inv._BENIGN_CALLS and all(t in load_policy(BASE).tool_names
+                                     for t, _ in inv._BENIGN_CALLS)

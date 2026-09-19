@@ -4,9 +4,16 @@ scenarios someone thought to write down.
 A random workload generator drives the kernel with thousands of arbitrary
 call/spawn sequences and each invariant is checked after every operation. This
 is the part that catches regressions nobody anticipated.
+
+`afuzz` runs the same invariants against the async path: each round is a batch
+of operations launched together under `asyncio.gather`, some cancelled
+mid-flight, with a watcher task re-checking every invariant at each yield
+point. Sequential fuzzing can only observe the kernel between calls; this
+observes it *during* them.
 """
 from __future__ import annotations
 
+import asyncio
 import random
 from dataclasses import dataclass
 from typing import Callable
@@ -76,6 +83,17 @@ def inv_no_effect_on_deny(root: Grant, *, kernel: Kernel,
     return []
 
 
+def inv_every_effect_was_charged(root: Grant, *, recorder: SideEffectRecorder,
+                                 **_) -> list[Violation]:
+    """Every execution was paid for. The root ledger sees every charge in the
+    tree, so executions can never outnumber charged calls."""
+    if len(recorder.calls) > root.ledger.tool_calls:
+        return [Violation("every_effect_was_charged",
+                          f"{len(recorder.calls)} executions vs "
+                          f"{root.ledger.tool_calls} charged calls")]
+    return []
+
+
 def inv_audit_chain(root: Grant, *, kernel: Kernel, **_) -> list[Violation]:
     return ([] if kernel.audit.verify()
             else [Violation("audit_chain", "hash chain does not verify")])
@@ -95,7 +113,8 @@ def inv_revocation_is_total(root: Grant, **_) -> list[Violation]:
 
 INVARIANTS: tuple[Callable, ...] = (
     inv_attenuation, inv_depth_bound, inv_budget_conservation,
-    inv_no_effect_on_deny, inv_audit_chain, inv_revocation_is_total,
+    inv_no_effect_on_deny, inv_every_effect_was_charged, inv_audit_chain,
+    inv_revocation_is_total,
 )
 
 
@@ -114,6 +133,44 @@ _HOSTILE_ARGS = [
     {},
 ]
 
+# Well-formed calls the base policy admits, paired with their tool. Without
+# these almost every call is denied at the guards, budgets are never exhausted,
+# and the budget invariants are checked against a ledger that barely moves --
+# the fuzzer looks green because it never reaches the interesting state.
+_BENIGN_CALLS = [
+    ("kb.search", {"query": "quarterly report"}),
+    ("fs.read", {"path": "/workspace/notes.txt"}),
+    ("http.get", {"url": "https://api.internal.corp/v1/items"}),
+    ("db.query", {"sql": "SELECT id FROM orders"}),
+]
+
+
+def _pick_call(rng: random.Random, tools: list[str]) -> tuple[str, dict]:
+    if rng.random() < 0.5:
+        tool, args = rng.choice(_BENIGN_CALLS)
+        return tool, dict(args)
+    return rng.choice(tools), dict(rng.choice(_HOSTILE_ARGS))
+
+
+def _pick_grant(rng: random.Random, live: list[Grant]) -> Grant:
+    """Mostly active grants, so work actually happens; sometimes a revoked
+    one, so revocation keeps being exercised."""
+    active = [g for g in live if g.is_active()]
+    if active and rng.random() < 0.85:
+        return rng.choice(active)
+    return rng.choice(live)
+
+
+_OFF_POLICY = {"shell.exec", "payments.transfer", "iam.grant", "email.send"}
+
+
+def _check_all(root: Grant, kernel: Kernel, recorder: SideEffectRecorder
+               ) -> list[Violation]:
+    out: list[Violation] = []
+    for inv in INVARIANTS:
+        out.extend(inv(root, kernel=kernel, recorder=recorder))
+    return out
+
 
 def fuzz(policy: Policy, *, steps: int = 400, seed: int = 0
          ) -> list[Violation]:
@@ -124,11 +181,10 @@ def fuzz(policy: Policy, *, steps: int = 400, seed: int = 0
     live: list[Grant] = [root]
     violations: list[Violation] = []
 
-    tools = sorted(policy.tool_names | {"shell.exec", "payments.transfer",
-                                        "iam.grant", "email.send"})
+    tools = sorted(policy.tool_names | _OFF_POLICY)
 
     for i in range(steps):
-        grant = rng.choice(live)
+        grant = _pick_grant(rng, live)
         roll = rng.random()
         try:
             if roll < 0.25:
@@ -140,14 +196,80 @@ def fuzz(policy: Policy, *, steps: int = 400, seed: int = 0
             elif roll < 0.30 and len(live) > 1:
                 kernel.revoke(rng.choice(live[1:]))
             else:
-                kernel.invoke(grant, rng.choice(tools), **rng.choice(_HOSTILE_ARGS))
+                tool, args = _pick_call(rng, tools)
+                kernel.invoke(grant, tool, **args)
         except PolicyViolation:
             pass                      # denial is a valid outcome
         except Exception as exc:      # anything else is a framework bug
             violations.append(Violation("kernel_crash", f"{type(exc).__name__}: {exc}"))
 
-        for inv in INVARIANTS:
-            violations.extend(inv(root, kernel=kernel, recorder=recorder))
+        violations.extend(_check_all(root, kernel, recorder))
+        if violations:
+            break
+    return violations
+
+
+def afuzz(policy: Policy, *, rounds: int = 60, batch: int = 12, seed: int = 0,
+          kernel_factory: Callable[..., Kernel] = Kernel) -> list[Violation]:
+    """Concurrent twin of `fuzz`. Drives `ainvoke`/`aspawn` in batches.
+
+    `kernel_factory` exists for negative controls: tests plant a deliberately
+    racy kernel and assert this fuzzer catches it.
+    """
+    return asyncio.run(_afuzz(policy, rounds=rounds, batch=batch, seed=seed,
+                              kernel_factory=kernel_factory))
+
+
+async def _afuzz(policy: Policy, *, rounds: int, batch: int, seed: int,
+                 kernel_factory: Callable[..., Kernel]) -> list[Violation]:
+    rng = random.Random(seed)
+    registry, recorder = build_fixture_registry(
+        policy, async_rng=random.Random(seed ^ 0x5EED))
+    kernel = kernel_factory(registry)
+    root = Grant.root(policy, "root")
+    live: list[Grant] = [root]
+    violations: list[Violation] = []
+    tools = sorted(policy.tool_names | _OFF_POLICY)
+
+    async def op(i: int) -> None:
+        grant = _pick_grant(rng, live)
+        roll = rng.random()
+        try:
+            if roll < 0.2:
+                req = SpawnRequest(
+                    name=f"a{i}",
+                    tools=frozenset(rng.sample(tools, rng.randint(0, min(3, len(tools))))),
+                    budget_fraction=rng.choice([0.1, 0.5, 0.9, 1.0, 2.0]))
+                live.append(await kernel.aspawn(grant, req))
+            elif roll < 0.25 and len(live) > 1:
+                kernel.revoke(rng.choice(live[1:]))
+            else:
+                tool, args = _pick_call(rng, tools)
+                await kernel.ainvoke(grant, tool, **args)
+        except PolicyViolation:
+            pass                      # denial is a valid outcome
+        except Exception as exc:      # anything else is a framework bug
+            violations.append(Violation("kernel_crash",
+                                        f"{type(exc).__name__}: {exc}"))
+
+    async def watcher(stop: asyncio.Event) -> None:
+        # Re-check at every scheduling point while the batch is in flight.
+        while not stop.is_set():
+            violations.extend(_check_all(root, kernel, recorder))
+            await asyncio.sleep(0)
+
+    for r in range(rounds):
+        stop = asyncio.Event()
+        watch = asyncio.create_task(watcher(stop))
+        tasks = [asyncio.create_task(op(r * batch + j)) for j in range(batch)]
+        await asyncio.sleep(0)
+        for t in tasks:
+            if rng.random() < 0.1:
+                t.cancel()            # a cancelled call must still have been paid for
+        await asyncio.gather(*tasks, return_exceptions=True)
+        stop.set()
+        await watch
+        violations.extend(_check_all(root, kernel, recorder))
         if violations:
             break
     return violations

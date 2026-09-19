@@ -22,10 +22,11 @@ which is what makes the tooling usable as a service.
 ```bash
 pip install -e ".[dev]"
 
-pytest -q                                                    # 124 tests, all must pass
+pytest -q                                                    # 132 tests, all must pass
 python -m conformance.cli ratify  --policy policies/base.yaml
 python -m conformance.cli verify  --suites suites --policy policies/base.yaml --require-coverage
 python -m conformance.cli fuzz    --policy policies/base.yaml --iterations 20
+python -m conformance.cli fuzz    --policy policies/base.yaml --iterations 20 --async
 python -m conformance.cli audit   --policy policies/base.yaml --baseline loopholes.baseline.yaml
 python -m conformance.cli drift   --baseline old.yaml --candidate policies/base.yaml
 python -m conformance.cli mcp     --manifest examples/sample_mcp_manifest.json --out audit-out
@@ -113,9 +114,10 @@ Honest list. Do not paper over these.
    probing silently.
 4. **`ArgConstraint.intersect` composes regexes with lookahead.** Correct but
    unreadable; a proper intersection would be better.
-5. **The fuzzer only drives the sync path.** `ainvoke` shares admission and
-   post-guards with `invoke`, and `tests/test_async.py` pins parity, but the
-   invariant fuzzer does not yet interleave concurrent async calls.
+5. **Async fuzzing is single-loop.** `afuzz` interleaves coroutines and runs
+   blocking tools in threads, but every ledger charge still happens on the
+   loop thread. Multiple loops or threads calling one kernel concurrently are
+   covered only by the ledger's lock, not by a fuzzer.
 
 ## What not to build yet
 

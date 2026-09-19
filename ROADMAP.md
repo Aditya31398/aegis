@@ -8,8 +8,9 @@ Ordered by whether it unblocks a user, not by how interesting it is.
       tools are awaited, blocking tools run in a worker thread, and a coroutine
       tool called through sync `invoke` is denied
       (`kernel.async_tool_requires_ainvoke`) before any budget is charged.
-- [ ] **Async fuzzing.** Extend `conformance/invariants.py` to run workloads
-      under `asyncio.gather` so interleavings are checked, not just parity.
+- [x] **Async fuzzing.** `fuzz --async` runs batches under `asyncio.gather`,
+      cancels some mid-flight, and re-checks every invariant at each yield
+      point. A planted check-then-charge race is a negative control.
 - [ ] **Live MCP ingest.** `--server http://host/mcp` that performs a real
       `tools/list` handshake instead of requiring a saved manifest. This is the
       difference between "send me your config" and "paste your URL", which is

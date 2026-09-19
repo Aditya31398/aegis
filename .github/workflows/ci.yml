@@ -53,6 +53,9 @@ jobs:
       - name: Invariant fuzz
         run: python -m conformance.cli fuzz --policy policies/base.yaml --iterations 20
 
+      - name: Invariant fuzz (concurrent)
+        run: python -m conformance.cli fuzz --policy policies/base.yaml --iterations 20 --async
+
       # 5. Loophole hunt against the accepted baseline.
       - name: Loophole audit
         run: >
