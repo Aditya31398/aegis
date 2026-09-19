@@ -240,6 +240,7 @@ jobs:
           baseline: ci-baseline.yaml
           fail-on: critical
           out: second
+          artifact-name: aegis-audit-second
       - name: Outputs are populated on success
         env:
           FINDINGS: ${{ steps.second.outputs.findings }}

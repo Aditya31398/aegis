@@ -44,6 +44,12 @@ inputs:
       unavailable on pull requests from forks.
     required: false
     default: "false"
+  artifact-name:
+    description: >-
+      Name of the uploaded artifact. Must be unique within a workflow run, so
+      set it when using the action more than once or in a matrix.
+    required: false
+    default: "aegis-audit"
   comment-on-pr:
     description: "Post the summary as a PR comment, updated in place (needs pull-requests: write)."
     required: false
@@ -163,7 +169,7 @@ runs:
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: aegis-audit
+        name: ${{ inputs.artifact-name }}
         path: ${{ inputs.out }}/
 
     - name: Fail on blocking findings
