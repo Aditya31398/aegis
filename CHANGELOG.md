@@ -29,7 +29,7 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
   only send `initialize` and `tools/list`. Anonymous listing is reported as a
   critical finding with a witness.
 - GitHub Action: `server`, `bearer-token`, `upload-sarif`, working
-  `comment-on-pr`, and `sarif`/`json`/`blocking` outputs. The action installs
+  `comment-on-pr`, `artifact-name`, and `sarif`/`json`/`blocking` outputs. The action installs
   the exact ref it is pinned to.
 - Container image `ghcr.io/aditya31398/aegis` (non-root, multi-arch, SBOM).
 - Release pipeline: PyPI trusted publishing, signed build provenance for the
