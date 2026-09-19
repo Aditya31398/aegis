@@ -1,0 +1,119 @@
+# CLAUDE.md
+
+Context for Claude Code working in this repo. Read this before changing
+anything under `aegis/`.
+
+## What this is
+
+Two halves that must stay separable:
+
+- `aegis/` — a kernel that mediates every effect an agent can cause. Policies
+  are YAML data, grants attenuate on spawn, guards fail closed, every decision
+  lands in a hash-chained audit log.
+- `conformance/` — the regression framework. Adversarial scenarios, property
+  fuzzing, privilege-drift detection, and a loophole hunter that attacks our
+  own policies. This half is the differentiated part of the project.
+
+`aegis/adapters/mcp.py` points the hunter at MCP servers we did not write,
+which is what makes the tooling usable as a service.
+
+## Commands
+
+```bash
+pip install -e ".[dev]"
+
+pytest -q                                                    # 107 tests, all must pass
+python -m conformance.cli ratify  --policy policies/base.yaml
+python -m conformance.cli verify  --suites suites --policy policies/base.yaml --require-coverage
+python -m conformance.cli fuzz    --policy policies/base.yaml --iterations 20
+python -m conformance.cli audit   --policy policies/base.yaml --baseline loopholes.baseline.yaml
+python -m conformance.cli drift   --baseline old.yaml --candidate policies/base.yaml
+python -m conformance.cli mcp     --manifest examples/sample_mcp_manifest.json --out audit-out
+
+python examples/demo.py
+```
+
+## Invariants — do not break these
+
+These are load-bearing. Each has a test that fails loudly; if one starts
+failing, the fix is the code, not the test.
+
+1. **`Kernel._execute` is the only call site that invokes a tool
+   implementation.** `test_kernel_is_the_only_execution_path` parses the AST of
+   every file under `aegis/` and fails if a second `spec.fn(...)` appears. The
+   whole "every effect is mediated" claim rests on this.
+2. **Agents never hold a callable.** They hold a `ToolProxy` bound to
+   `(kernel, grant, tool_name)`. Do not add an attribute to `Agent` that
+   exposes a registered implementation.
+3. **Guards fail closed.** A guard that raises becomes `guard.internal_error`
+   DENY, never an allow. Do not add a `try/except: pass` anywhere in
+   `Kernel.decide`.
+4. **Grants only attenuate.** `Grant.attenuate()` raises on any request for
+   authority the parent lacks. Budgets are hierarchical; a child's spend debits
+   every ancestor.
+5. **Rule ids are the public contract.** Tests pin `verdict.rule`, never the
+   prose in `verdict.reason`. Reword reasons freely; renaming a rule id is a
+   breaking change and needs the suites updated in the same commit.
+6. **Constitutional clauses have no waiver.** If a clause is inconvenient, the
+   fix is to amend `constitution.yaml` in a visible diff, never to add a
+   bypass flag.
+
+## Working agreements
+
+- **Every new tool needs two scenarios**: at least one allow and one deny per
+  constraint, in `suites/`. `--require-coverage` fails the build otherwise.
+- **Every new check needs a negative control.** A check that cannot produce a
+  false positive on a well-formed input has not been tested. See
+  `test_omnibus_requires_two_signals`.
+- **Findings need a witness or two independent signals.** Published MCP
+  scanners run ~78% false positives because they flag descriptions of normal
+  functionality. Low noise is the product differentiator; protect it.
+- **Never widen a policy to make a test pass.** If a scenario fails, the
+  scenario is usually right.
+- **New loopholes go in the baseline only with a reason and an owner.**
+  `test_baseline_entries_all_have_reasons_and_still_apply` enforces both, and
+  also fails on stale entries so a closed hole cannot sit there looking open.
+- Keep `aegis/` dependency-free apart from PyYAML. The kernel is meant to be
+  vendorable into someone else's codebase.
+
+## Layout
+
+```
+aegis/
+  kernel.py       the sole mediation point; read this first
+  grant.py        capability attenuation + hierarchical budget ledger
+  policy.py       YAML policy model, `extends` may only tighten
+  constitution.py seven unwaivable clauses, checked at ratification
+  guards/         capability, spawn, budget, data (PII + taint)
+  adapters/mcp.py ingest → synthesize → harden
+conformance/
+  runner.py       scenario execution; asserts denials produced no side effect
+  invariants.py   six properties re-checked after every fuzzed operation
+  drift.py        privilege-widening detector
+  loopholes.py    static + payload probe + metamorphic mutation
+  mcp_checks.py   omnibus, shadowing, description injection, secrets
+  report.py       the client-facing deliverable
+```
+
+## Known-weak areas, ranked
+
+Honest list. Do not paper over these.
+
+1. **Taint does not cross agents.** One child reads sensitive data, a sibling
+   holds a sink, and the orchestration hands one's output to the other. The
+   kernel cannot see that. Needs a mediated message bus. Accepted in the
+   baseline as `54ef34904237b006`.
+2. **Effect inference in the MCP adapter is keyword-based.** It will
+   mis-classify unusual tool names. A wrong effect means a wrong severity.
+3. **`sample_from_pattern` handles only simple anchored regexes.** It returns
+   `None` rather than guessing, which is correct, but means exotic schemas skip
+   probing silently.
+4. **`ArgConstraint.intersect` composes regexes with lookahead.** Correct but
+   unreadable; a proper intersection would be better.
+5. **No async.** The kernel is synchronous. Real agent runtimes are not.
+
+## What not to build yet
+
+- No dashboard, no web UI, no hosted service. The CLI and the GitHub Action
+  are the distribution surface until someone is paying.
+- No new payload categories before the existing ones have negative controls.

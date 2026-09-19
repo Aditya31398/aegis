@@ -1,0 +1,67 @@
+name: base
+version: 3
+
+effects: [read, write, network, egress, spawn, compute]
+
+tools:
+  allow:
+    - name: kb.search
+      args:
+        query: {max_len: 512}
+
+    - name: fs.read
+      require_args: [path]
+      args:
+        path:
+          prefix: "/workspace/"
+          forbid_matches: "(?i)\\.\\.|%2e|%2f|%00|\\x00|[\\x00-\\x1f]|/\\.env|/\\.ssh|id_rsa"
+
+    - name: fs.write
+      require_args: [path, content]
+      args:
+        path:
+          prefix: "/workspace/out/"
+          forbid_matches: "(?i)\\.\\.|%2e|%00|\\x00|[\\x00-\\x1f]"
+        content: {max_len: 200000}
+
+    - name: http.get
+      require_args: [url]
+      args:
+        url: {matches: "^https://api\\.internal\\.corp/v1/[\\w/-]+$"}
+
+    - name: http.post
+      require_args: [url, body]
+      args:
+        url: {matches: "^https://api\\.internal\\.corp/v1/[\\w/-]+$"}
+        body: {max_len: 65536}
+
+    - name: db.query
+      require_args: [sql]
+      args:
+        sql:
+          matches: "(?is)^\\s*select\\b.*"
+          forbid_matches: "(?i)\\b(drop|delete|update|insert|alter|truncate|grant|union|copy|merge|call|execute)\\b|\\b(into\\s+outfile|into\\s+dumpfile|load_file|lo_import|lo_export)\\b|\\b(pg_read_file|pg_ls_dir|pg_sleep|pg_shadow|pg_authid|dblink\\w*|xp_cmdshell)\\b|;\\s*\\S|/\\*|--\\s"
+          max_len: 4000
+
+    - name: agent.spawn
+
+budget:
+  usd: 5.00
+  tokens: 400000
+  wall_clock_s: 900
+  tool_calls: 250
+
+data:
+  max_classification: confidential
+  egress:
+    sinks: [http.post, http.get, fs.write]
+    max_classification: internal
+    block_pii: [email, phone_in, ssn, aadhaar, credit_card, api_key, private_key]
+    redact_instead_of_deny: false
+
+spawn:
+  max_depth: 2
+  max_fanout: 3
+  max_descendants: 8
+  child_budget_fraction: 0.4
+  allow_tools: [kb.search, fs.read, http.get, db.query, agent.spawn]

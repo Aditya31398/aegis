@@ -1,0 +1,94 @@
+name: "Aegis agent tool-surface audit"
+description: >-
+  Audit MCP servers and agent tool schemas for over-broad permissions, unscreened
+  egress, prompt-injection surface in tool descriptions and payloads that get
+  through. Fails the build on new findings; accepted ones live in a baseline.
+author: "Aegis contributors"
+
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  manifest:
+    description: "Path to an MCP tools/list response, a client config, or a server bundle."
+    required: true
+  baseline:
+    description: >-
+      Path to an accepted-findings file. Findings whose fingerprint appears there
+      do not fail the build. Omit on a first run to see everything.
+    required: false
+    default: ""
+  fail-on:
+    description: "Lowest severity that fails the build: critical, high, medium, low, info."
+    required: false
+    default: "high"
+  out:
+    description: "Directory for the report and the generated hardened policy."
+    required: false
+    default: "audit-out"
+  comment-on-pr:
+    description: "Post the report summary as a PR comment (needs pull-requests: write)."
+    required: false
+    default: "false"
+
+outputs:
+  report:
+    description: "Path to the generated Markdown report."
+    value: ${{ steps.audit.outputs.report }}
+  hardened-policy:
+    description: "Path to the generated hardened policy."
+    value: ${{ steps.audit.outputs.hardened }}
+  findings:
+    description: "Total number of findings."
+    value: ${{ steps.audit.outputs.findings }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install aegis
+      shell: bash
+      run: pip install --quiet "aegis-guard @ git+https://github.com/OWNER/aegis@main"
+
+    - name: Run audit
+      id: audit
+      shell: bash
+      run: |
+        set +e
+        args=(--manifest "${{ inputs.manifest }}" --out "${{ inputs.out }}"
+              --fail-on "${{ inputs.fail-on }}")
+        if [ -n "${{ inputs.baseline }}" ]; then
+          args+=(--baseline "${{ inputs.baseline }}")
+        fi
+        python -m conformance.cli mcp "${args[@]}" | tee /tmp/aegis.log
+        status=${PIPESTATUS[0]}
+        echo "report=${{ inputs.out }}/audit-report.md" >> "$GITHUB_OUTPUT"
+        echo "hardened=${{ inputs.out }}/hardened-policy.yaml" >> "$GITHUB_OUTPUT"
+        echo "findings=$(grep -oE '^[0-9]+ findings' /tmp/aegis.log | head -1 | cut -d' ' -f1)" \
+          >> "$GITHUB_OUTPUT"
+        exit $status
+
+    - name: Job summary
+      if: always()
+      shell: bash
+      run: |
+        {
+          echo "## Agent tool-surface audit"
+          echo
+          # Summary + top five only. The full report is in the artifact; a
+          # 600-line job summary is a summary nobody reads.
+          sed -n '/^## Summary/,/^## Findings/p' "${{ inputs.out }}/audit-report.md" \
+            | sed '$d'
+          echo
+          sed -n '/^## What to do first/,$p' "${{ inputs.out }}/audit-report.md"
+        } >> "$GITHUB_STEP_SUMMARY" || echo "audit produced no report" >> "$GITHUB_STEP_SUMMARY"
+
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: aegis-audit
+        path: ${{ inputs.out }}/

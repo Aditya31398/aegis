@@ -1,0 +1,28 @@
+# Derived policies may only TIGHTEN. The loader raises if a budget is raised;
+# conformance/drift.py catches subtler widening (new tools, looser regexes).
+extends: base.yaml
+name: restricted
+version: 1
+
+tools:
+  deny: [fs.write, http.post, agent.spawn]
+  allow:
+    - name: db.query
+      args:
+        sql: {max_len: 1000}
+
+budget:
+  usd: 0.50
+  tokens: 50000
+  wall_clock_s: 120
+  tool_calls: 25
+
+data:
+  max_classification: internal
+  egress:
+    max_classification: public
+
+spawn:
+  max_depth: 0
+  max_fanout: 0
+  max_descendants: 0

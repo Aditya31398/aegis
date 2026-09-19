@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aegis-guard"
+version = "0.1.0"
+description = "Capability-based constraint enforcement for agent systems, with a regression suite that hunts its own loopholes."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+keywords = ["ai-agents", "mcp", "security", "guardrails", "policy", "authorization"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Topic :: Security",
+  "Programming Language :: Python :: 3",
+]
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+aegis = "conformance.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/OWNER/aegis"
+Issues = "https://github.com/OWNER/aegis/issues"
+
+[tool.setuptools]
+packages = ["aegis", "aegis.guards", "aegis.adapters", "conformance"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

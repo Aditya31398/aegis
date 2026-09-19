@@ -1,0 +1,69 @@
+# The constitution.
+#
+# These clauses sit ABOVE every policy. A policy that violates one cannot be
+# ratified and the kernel refuses to start on it. There is no waiver flag --
+# the only route past a clause is to edit this file, which is a loud diff.
+#
+# Rule of thumb for what belongs here: a clause states a property that should
+# hold for EVERY agent this organisation will ever run. If you find yourself
+# wanting an exception for one team, it is a policy rule, not a clause.
+
+version: 1
+
+clauses:
+  - id: C1
+    title: Bounded authority
+    text: >
+      No agent may hold unbounded authority. Every budget axis -- money,
+      tokens, wall-clock and tool calls -- must carry a positive, finite limit.
+    enabled: true
+
+  - id: C2
+    title: Every egress path is screened
+    text: >
+      Any tool capable of moving data outward must be a declared egress sink
+      with active PII screening. A tool whose effects include write, network or
+      egress but which the policy does not list as a sink is an unscreened
+      exit.
+    enabled: true
+
+  - id: C3
+    title: No unconstrained effectful argument
+    text: >
+      An argument to a tool with side effects must carry at least one
+      constraint. "Required but unconstrained" is indistinguishable from
+      "anything goes".
+    enabled: true
+
+  - id: C4
+    title: Delegation strictly attenuates
+    text: >
+      A child agent must be strictly weaker than its parent, and the depth of
+      any delegation chain is bounded. A child budget fraction of 1.0 is
+      non-attenuating and is forbidden.
+    enabled: true
+    config:
+      max_permitted_depth: 4
+
+  - id: C5
+    title: Reading is not exporting
+    text: >
+      Authority to read data at a classification never implies authority to
+      export it. The egress ceiling must sit strictly below the read ceiling
+      wherever the read ceiling is above PUBLIC.
+    enabled: true
+
+  - id: C6
+    title: Rules must be enforceable
+    text: >
+      A rule that cannot fire is worse than no rule, because it reads as
+      protection. Every PII kind named in a policy must have a working
+      detector behind it.
+    enabled: true
+
+  - id: C7
+    title: No phantom grants
+    text: >
+      A policy may not grant a tool that does not exist. A phantom grant
+      silently activates the day someone registers a tool by that name.
+    enabled: true

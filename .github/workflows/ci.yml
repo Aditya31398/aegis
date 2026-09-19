@@ -1,0 +1,107 @@
+name: aegis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # The loophole corpus is the moat. Re-run weekly so a hole introduced by a
+    # dependency or a payload added to the corpus surfaces without a commit.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - run: pip install -e ".[dev]"
+
+      # 1. Constitution — no policy may start unratified. No waiver exists.
+      - name: Ratify policies
+        run: |
+          for p in policies/*.yaml; do
+            [ "$(basename "$p")" = "_scratch_widened.yaml" ] && continue
+            python -m conformance.cli ratify --policy "$p"
+          done
+
+      # 2. Unit + conformance + invariants + drift detection.
+      - name: Test suite
+        run: python -m pytest -q
+
+      # 3. Adversarial scenarios, with tool coverage enforced.
+      - name: Conformance scenarios
+        run: >
+          python -m conformance.cli verify
+          --suites suites --policy policies/base.yaml --require-coverage
+
+      # 4. Property-based invariants under random workloads.
+      - name: Invariant fuzz
+        run: python -m conformance.cli fuzz --policy policies/base.yaml --iterations 20
+
+      # 5. Loophole hunt against the accepted baseline.
+      - name: Loophole audit
+        run: >
+          python -m conformance.cli audit --policy policies/base.yaml
+          --baseline loopholes.baseline.yaml --fail-on high
+
+  drift:
+    # The check that catches "someone quietly made the policy weaker".
+    # Scenarios still pass after a widening, which is exactly why this is
+    # a separate job against the merge base rather than a test.
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -e ".[dev]"
+
+      - name: Detect privilege widening
+        run: |
+          mkdir -p /tmp/baseline
+          git show "origin/${{ github.base_ref }}:policies/base.yaml" \
+            > /tmp/baseline/base.yaml 2>/dev/null || {
+              echo "no baseline policy on the target branch; skipping"; exit 0; }
+          python -m conformance.cli drift \
+            --baseline /tmp/baseline/base.yaml \
+            --candidate policies/base.yaml
+
+  sample-audit:
+    # Proves the product claim on every commit: the generated hardened policy
+    # closes every critical finding it reports.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: Audit the sample manifest
+        run: >
+          python -m conformance.cli mcp
+          --manifest examples/sample_mcp_manifest.json
+          --out audit-out --fail-on critical || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sample-audit
+          path: audit-out/

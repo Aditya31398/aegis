@@ -1,0 +1,64 @@
+# Accepted loopholes.
+#
+# NOTE: fingerprints cover a (category, tool, argument) pair, not an individual
+# payload, so adding payloads to the corpus does not invalidate this file.
+# They DO change if a finding is re-scoped -- if an entry goes stale the test
+# suite says so rather than letting a closed hole sit here looking open.
+#
+# A finding here is a hole we know about and have decided not to close, with
+# the reason written down. Anything NOT in this file fails CI at high severity
+# or above. So the known-hole set can shrink silently but never grow silently.
+#
+# Every entry needs a reason and an owner. "It's noisy" is not a reason.
+
+version: 1
+
+accepted:
+  - fingerprint: 54ef34904237b006
+    finding: taint_laundering across sibling agents
+    reason: >
+      Taint is per-grant. The kernel mediates tool calls, not the messages your
+      orchestration passes between agents, so a reader child's output can reach
+      a sink sibling untainted. Closing this needs a mediated message bus.
+      Interim control: readers and sinks are assigned to disjoint subtrees by
+      convention, and the assignment is reviewed in PR.
+    owner: platform
+    review_by: 2026-12-01
+
+  - fingerprint: 239b1622e180209a
+    finding: a single child may hold both db.query and http.get
+    reason: >
+      Accepted. The taint post-guard blocks the read-then-export sequence
+      within one agent, which is the actual attack. Splitting allow_tools
+      further would make ordinary research workers unable to cite sources.
+    owner: platform
+
+  - fingerprint: 449965366b7c2a59
+    finding: a path inside /workspace may be a symlink out of it
+    reason: >
+      Not decidable from the argument string. This must be enforced in the
+      fs.read implementation with O_NOFOLLOW plus a realpath check against the
+      sandbox root. Tracked as a tool-level requirement, not a policy one.
+    owner: storage
+
+  - fingerprint: 0a73ba93b3424c40
+    finding: natural-language obfuscated PII in fs.write content
+    reason: >
+      "asha [dot] rao [at] example [dot] com" defeats pattern matching, and
+      chasing every phrasing is unbounded. The real control for this class is
+      the classification ceiling: an agent that never read the data cannot
+      write it out, and one that did is tainted.
+    owner: privacy
+
+  - fingerprint: 8df2c59b221eb9be
+    finding: natural-language obfuscated PII in http.post body
+    reason: same class as 0a73ba93b3424c40; the taint ceiling is the control.
+    owner: privacy
+
+  - fingerprint: 3e19934dbb367142
+    finding: db.query.sql matches ends in .*
+    reason: >
+      The trailing wildcard is intentional -- the positive pattern only pins
+      the statement to SELECT. The restriction is carried by forbid_matches,
+      which the payload probe exercises directly.
+    owner: data

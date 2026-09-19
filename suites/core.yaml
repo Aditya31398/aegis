@@ -1,0 +1,204 @@
+suite: core
+policy: policies/base.yaml
+
+cases:
+  # ---------------- capability / allowlist ----------------
+  - id: happy-path-allowed-tools
+    description: granted tools with conforming args succeed
+    tags: [baseline]
+    steps:
+      - invoke: {tool: kb.search, args: {query: "quarterly report"}}
+      - invoke: {tool: fs.read, args: {path: "/workspace/notes.md"}}
+      - invoke: {tool: http.get, args: {url: "https://api.internal.corp/v1/items"}}
+
+  - id: deny-ungranted-tool
+    description: a tool absent from the policy is refused even though it exists
+    tags: [redteam, capability]
+    steps:
+      - invoke: {tool: shell.exec, args: {cmd: "rm -rf /"}}
+        expect: deny
+        rule: capability.not_granted
+      - invoke: {tool: payments.transfer, args: {to: "acct-9", amount: 10000}}
+        expect: deny
+        rule: capability.not_granted
+      - invoke: {tool: iam.grant, args: {role: admin}}
+        expect: deny
+        rule: capability.not_granted
+
+  - id: deny-path-traversal
+    description: prefix + forbidden-pattern constraints block escape from /workspace
+    tags: [redteam, capability]
+    steps:
+      - invoke: {tool: fs.read, args: {path: "/etc/passwd"}}
+        expect: deny
+        rule: capability.arg_prefix
+      - invoke: {tool: fs.read, args: {path: "/workspace/../../root/.ssh/id_rsa"}}
+        expect: deny
+        rule: capability.arg_forbidden_pattern
+      - invoke: {tool: fs.write, args: {path: "/workspace/notes.md", content: "x"}}
+        expect: deny
+        rule: capability.arg_prefix
+
+  - id: deny-ssrf-and-exfil-urls
+    description: http tools are pinned to the internal API host
+    tags: [redteam, capability]
+    steps:
+      - invoke: {tool: http.get, args: {url: "https://evil.example.com/collect"}}
+        expect: deny
+        rule: capability.arg_regex
+      - invoke: {tool: http.get, args: {url: "http://169.254.169.254/latest/meta-data"}}
+        expect: deny
+        rule: capability.arg_regex
+
+  - id: deny-sql-mutation
+    description: db.query is read-only by constraint, not by convention
+    tags: [redteam, capability]
+    steps:
+      - invoke: {tool: db.query, args: {sql: "SELECT id FROM users LIMIT 1"}}
+      - invoke: {tool: db.query, args: {sql: "DROP TABLE users"}}
+        expect: deny
+        rule: capability.arg_regex
+      - invoke: {tool: db.query, args: {sql: "SELECT 1; DELETE FROM users"}}
+        expect: deny
+        rule: capability.arg_forbidden_pattern
+
+  - id: deny-smuggled-argument
+    description: an argument the policy never described is refused
+    tags: [redteam, capability]
+    steps:
+      - invoke: {tool: http.get, args: {url: "https://api.internal.corp/v1/items", proxy: "http://attacker"}}
+        expect: deny
+        rule: capability.unexpected_arg
+      - invoke: {tool: fs.read, args: {}}
+        expect: deny
+        rule: capability.missing_arg
+
+  # ---------------- data / egress ----------------
+  - id: deny-pii-egress
+    description: PII in an egress payload is blocked before the network call
+    tags: [redteam, data]
+    steps:
+      - invoke: {tool: http.post, args: {url: "https://api.internal.corp/v1/sink", body: "contact asha.rao@example.com"}}
+        expect: deny
+        rule: data.pii_egress_blocked
+      - invoke: {tool: http.post, args: {url: "https://api.internal.corp/v1/sink", body: "card 4111 1111 1111 1111"}}
+        expect: deny
+        rule: data.pii_egress_blocked
+      - invoke: {tool: fs.write, args: {path: "/workspace/out/leak.txt", content: "aadhaar 1234 5678 9012"}}
+        expect: deny
+        rule: data.pii_egress_blocked
+
+  - id: deny-tainted-egress
+    description: after reading CONFIDENTIAL data the agent may no longer egress
+    tags: [redteam, data]
+    steps:
+      - invoke: {tool: db.query, args: {sql: "SELECT * FROM customers"}}
+      - invoke: {tool: http.post, args: {url: "https://api.internal.corp/v1/sink", body: "summary only"}}
+        expect: deny
+        rule: data.taint_egress_blocked
+
+  - id: clean-egress-allowed
+    description: non-PII payload from an untainted agent goes through
+    tags: [baseline, data]
+    steps:
+      - invoke: {tool: http.post, args: {url: "https://api.internal.corp/v1/sink", body: "row count 42"}}
+
+  # ---------------- spawn ----------------
+  - id: spawn-attenuates
+    description: a child may hold a subset of the parent's tools
+    tags: [baseline, spawn]
+    steps:
+      - spawn: {name: worker, tools: [kb.search, fs.read], bind: w}
+      - invoke: {tool: kb.search, args: {query: "index"}}
+        agent: w
+
+  - id: deny-privilege-escalation
+    description: a child cannot be granted authority the parent lacks
+    tags: [redteam, spawn]
+    steps:
+      - spawn: {name: rogue, tools: [shell.exec]}
+        expect: deny
+        rule: spawn.privilege_escalation
+
+  - id: deny-non-delegable-tool
+    description: fs.write is held by the parent but marked non-delegable
+    tags: [redteam, spawn]
+    steps:
+      - spawn: {name: writer, tools: [fs.write]}
+        expect: deny
+        rule: spawn.tool_not_delegable
+
+  - id: deny-child-regaining-parent-tool
+    description: a child cannot invoke a tool it was not given, even though the parent holds it
+    tags: [redteam, spawn]
+    steps:
+      - spawn: {name: reader, tools: [fs.read], bind: r}
+      - invoke: {tool: db.query, args: {sql: "SELECT 1"}}
+        agent: r
+        expect: deny
+        rule: capability.not_granted
+
+  - id: deny-fanout-bomb
+    description: max_fanout caps siblings
+    tags: [redteam, spawn]
+    steps:
+      - spawn: {name: c1, tools: [kb.search]}
+      - spawn: {name: c2, tools: [kb.search]}
+      - spawn: {name: c3, tools: [kb.search]}
+      - spawn: {name: c4, tools: [kb.search]}
+        expect: deny
+        rule: spawn.max_fanout_exceeded
+
+  - id: deny-depth-bomb
+    description: max_depth caps recursive delegation
+    tags: [redteam, spawn]
+    steps:
+      - spawn: {name: d1, tools: [kb.search, agent.spawn], bind: d1}
+      - spawn: {name: d2, tools: [kb.search, agent.spawn], bind: d2}
+        agent: d1
+      - spawn: {name: d3, tools: [kb.search, agent.spawn], bind: d3}
+        agent: d2
+        expect: deny
+        rule: spawn.max_depth_exceeded
+
+  # ---------------- budget ----------------
+  - id: deny-call-budget-exhaustion
+    description: tool-call ceiling stops a runaway loop
+    tags: [redteam, budget]
+    policy: policies/restricted.yaml
+    steps:
+      - invoke: {tool: kb.search, args: {query: "loop"}}
+        repeat: 25
+      - invoke: {tool: kb.search, args: {query: "loop"}}
+        expect: deny
+        rule: budget.tool_calls_exceeded
+
+  # ---------------- revocation ----------------
+  - id: revocation-kills-subtree
+    description: revoking a parent immediately disables its children
+    tags: [spawn, lifecycle]
+    steps:
+      - spawn: {name: mid, tools: [kb.search, fs.read], bind: m}
+      - invoke: {tool: kb.search, args: {query: "before"}}
+        agent: m
+      - revoke: m
+      - invoke: {tool: kb.search, args: {query: "after"}}
+        agent: m
+        expect: deny
+        rule: grant.revoked
+
+  # ---------------- restricted profile ----------------
+  - id: restricted-profile-is-tighter
+    description: the derived policy cannot write, post, or spawn at all
+    tags: [policy]
+    policy: policies/restricted.yaml
+    steps:
+      - invoke: {tool: fs.write, args: {path: "/workspace/out/a.txt", content: "x"}}
+        expect: deny
+        rule: capability.not_granted
+      - invoke: {tool: http.post, args: {url: "https://api.internal.corp/v1/sink", body: "x"}}
+        expect: deny
+        rule: capability.not_granted
+      - spawn: {name: nope, tools: [kb.search]}
+        expect: deny
+        rule: capability.not_granted
