@@ -49,6 +49,9 @@ inputs:
     required: false
     default: "false"
 
+# GitHub drops a composite action's outputs when the action fails. On a
+# failing run, read the files in `out` (they are always written and uploaded
+# as the `aegis-audit` artifact) rather than these outputs.
 outputs:
   report:
     description: "Path to the generated Markdown report."

@@ -207,23 +207,54 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - id: audit
+
+      # 1. The deliberately vulnerable sample must fail the action.
+      - id: first
         uses: ./
         continue-on-error: true
         with:
           manifest: examples/sample_mcp_manifest.json
           fail-on: critical
-      - name: Action failed on the vulnerable sample and reported outputs
-        env:
-          OUTCOME: ${{ steps.audit.outcome }}
-          FINDINGS: ${{ steps.audit.outputs.findings }}
-          BLOCKING: ${{ steps.audit.outputs.blocking }}
-          SARIF: ${{ steps.audit.outputs.sarif }}
+          out: first
+      - name: First run failed but still left its artifacts on disk
         run: |
-          echo "outcome=$OUTCOME findings=$FINDINGS blocking=$BLOCKING"
-          [ "$OUTCOME" = failure ]
-          [ "$FINDINGS" -gt 0 ] && [ "$BLOCKING" -gt 0 ]
-          python3 -c "import json,sys; assert json.load(open(sys.argv[1]))['version']=='2.1.0'" "$SARIF"
+          [ "${{ steps.first.outcome }}" = failure ]
+          test -s first/audit.sarif && test -s first/audit.json && test -s first/audit-report.md
+
+      # 2. Accept every finding from run 1 into a baseline; the same audit
+      #    must now pass and populate every output.
+      - name: Baseline everything from the first run
+        run: |
+          python3 - <<'EOF'
+          import json
+          fs = json.load(open("first/audit.json"))["findings"]
+          # JSON is valid YAML, so no YAML library is needed on the runner.
+          entries = [{"fingerprint": f["fingerprint"], "owner": "ci",
+                      "reason": "CI fixture: deliberately vulnerable sample"} for f in fs]
+          json.dump({"accepted": entries}, open("ci-baseline.yaml", "w"), indent=2)
+          EOF
+      - id: second
+        uses: ./
+        with:
+          manifest: examples/sample_mcp_manifest.json
+          baseline: ci-baseline.yaml
+          fail-on: critical
+          out: second
+      - name: Outputs are populated on success
+        env:
+          FINDINGS: ${{ steps.second.outputs.findings }}
+          BLOCKING: ${{ steps.second.outputs.blocking }}
+          SARIF: ${{ steps.second.outputs.sarif }}
+        run: |
+          echo "findings=$FINDINGS blocking=$BLOCKING sarif=$SARIF"
+          [ "$FINDINGS" -gt 0 ] && [ "$BLOCKING" -eq 0 ]
+          python3 -c "
+          import json, sys
+          doc = json.load(open(sys.argv[1]))
+          results = doc['runs'][0]['results']
+          assert doc['version'] == '2.1.0' and results
+          assert all('suppressions' in r for r in results), 'baselined findings must be suppressions'
+          " "$SARIF"
 
   ci-ok:
     # The single required status check. Branch protection points here, so the

@@ -265,7 +265,7 @@ def test_async_fuzz_catches_check_then_charge_race():
             for v in afuzz(_tight_policy(), rounds=20, batch=12, seed=s,
                            kernel_factory=_CheckThenChargeKernel))
         for s in range(6))
-    assert caught >= 3, f"planted race found on only {caught}/6 seeds"
+    assert caught >= 4, f"planted race found on only {caught}/6 seeds"
 
 
 def test_fuzz_workload_reaches_budget_exhaustion():

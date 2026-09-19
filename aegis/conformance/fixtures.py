@@ -110,11 +110,19 @@ def _make(name: str, rec: SideEffectRecorder, override: Any):
 def _make_async(name: str, rec: SideEffectRecorder, override: Any,
                 rng: random.Random):
     sync = _make(name, rec, override)
-    yields = rng.randint(0, 4)
+    # Yield both before and after the effect. Real tools usually cause the
+    # effect and *then* await (a response, a flush), so the window between
+    # "effect happened" and "call returned" must exist on the event loop
+    # itself -- not only on the thread path, where seeing it depends on
+    # scheduler timing and a detection test becomes flaky.
+    before, after = rng.randint(0, 3), rng.randint(1, 3)
 
     async def _afn(**kwargs):
-        for _ in range(yields):
+        for _ in range(before):
             await asyncio.sleep(0)
-        return sync(**kwargs)
+        result = sync(**kwargs)
+        for _ in range(after):
+            await asyncio.sleep(0)
+        return result
     _afn.__name__ = sync.__name__
     return _afn
