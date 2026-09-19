@@ -11,8 +11,8 @@ from aegis.adapters import mcp_client
 from aegis.adapters.mcp import load_servers
 from aegis.adapters.mcp_client import (ForbiddenMethod, McpClientError, _Session,
                                        dump_manifest, fetch_http, fetch_stdio)
-from conformance.cli import main as cli
-from conformance.mcp_checks import mcp_findings
+from aegis.conformance.cli import main as cli
+from aegis.conformance.mcp_checks import mcp_findings
 
 sys.path.insert(0, str(Path(__file__).parent))
 from fake_mcp_server import TOOLS, serve_http  # noqa: E402

@@ -11,10 +11,10 @@ from aegis.adapters.mcp import (McpServer, McpTool, build_registry, harden,
                                 write_hardened)
 from aegis.decision import Effect
 from aegis.policy import load_policy
-from conformance.loopholes import (AuditReport, consolidate, probe_findings,
+from aegis.conformance.loopholes import (AuditReport, consolidate, probe_findings,
                                    sample_from_pattern, static_findings)
-from conformance.mcp_checks import mcp_findings
-from conformance.report import render_markdown
+from aegis.conformance.mcp_checks import mcp_findings
+from aegis.conformance.report import render_markdown
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "examples" / "sample_mcp_manifest.json"

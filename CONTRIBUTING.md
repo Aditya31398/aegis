@@ -10,10 +10,17 @@ pytest -q
 ## Before you open a PR
 
 ```bash
+ruff check .
 pytest -q
-python -m conformance.cli verify --suites suites --policy policies/base.yaml --require-coverage
-python -m conformance.cli audit  --policy policies/base.yaml --baseline loopholes.baseline.yaml
+aegis verify --suites suites --policy policies/base.yaml --require-coverage
+aegis audit  --policy policies/base.yaml --baseline loopholes.baseline.yaml
 ```
+
+Add a line under `## [Unreleased]` in `CHANGELOG.md` for anything a user would
+notice. If you change `policies/base.yaml`, `policies/restricted.yaml`,
+`suites/core.yaml` or `loopholes.baseline.yaml`, copy the change into
+`aegis/templates/` (a test enforces this) — those files are what `aegis init`
+scaffolds.
 
 ## Rules that are not negotiable
 

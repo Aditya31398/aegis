@@ -27,11 +27,11 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 
 import yaml
 
-from aegis.decision import Classification, Effect
+from aegis.decision import Effect
 from aegis.grant import Grant
 from aegis.guards import Call
 from aegis.kernel import Kernel

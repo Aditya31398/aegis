@@ -34,7 +34,7 @@ from urllib.parse import urlparse
 from .mcp import McpServer, _tool
 
 PROTOCOL_VERSION = "2025-06-18"
-CLIENT_INFO = {"name": "aegis-audit", "version": "0.1"}
+CLIENT_INFO = {"name": "aegis-audit", "version": "0.2"}
 
 # The whole reason this module is safe to point at a production server.
 _ALLOWED_METHODS = frozenset({"initialize", "notifications/initialized", "tools/list"})

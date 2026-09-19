@@ -1,0 +1,47 @@
+name: aegis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  aegis:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write      # upload SARIF to code scanning
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # Pin the exact version: a new release can add checks, and a new check
+      # should arrive in a reviewed PR, not in an unrelated build.
+      - run: pip install "aegis-guard=={version}"
+
+      - name: Ratify policy against the constitution
+        run: aegis ratify --policy policies/base.yaml
+
+      - name: Adversarial scenarios
+        run: aegis verify --suites suites --policy policies/base.yaml --require-coverage
+
+      - name: Invariant fuzz
+        run: aegis fuzz --policy policies/base.yaml --iterations 10
+
+      - name: Loophole audit
+        run: >
+          aegis audit --policy policies/base.yaml --baseline loopholes.baseline.yaml
+          --fail-on high --format sarif --output aegis.sarif
+
+      - name: Upload to code scanning
+        if: always() && hashFiles('aegis.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: aegis.sarif
+          category: aegis

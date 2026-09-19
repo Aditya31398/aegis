@@ -8,9 +8,8 @@ on Agent that exposes a registered implementation.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable
+from typing import Any, Iterable
 
-from .decision import PolicyViolation
 from .grant import Grant, SpawnRequest
 from .kernel import Kernel
 

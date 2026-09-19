@@ -1,5 +1,26 @@
 # Security
 
+## Supported versions
+
+Security fixes land on the latest minor release. Pin an exact version in CI
+(`aegis-guard==X.Y.Z`, or the action at `@vX.Y.Z`) and let Dependabot propose
+upgrades, so a new check arrives in a reviewed PR.
+
+| Version | Supported |
+|---|---|
+| 0.2.x | yes |
+| < 0.2 | no |
+
+## Verifying what you install
+
+Every release artifact carries signed build provenance from the release
+workflow. Verify before deploying:
+
+```bash
+gh attestation verify aegis_guard-*.whl --repo Aditya31398/aegis
+gh attestation verify oci://ghcr.io/aditya31398/aegis:<version> --repo Aditya31398/aegis
+```
+
 ## Reporting
 
 Report vulnerabilities privately through GitHub's "Report a vulnerability"
@@ -17,11 +38,16 @@ This project is honest about what it cannot do:
   having an effect.
 - Constraints are only as strong as the policy. A tool registered with a loose
   pattern is a hole the kernel will faithfully honour. That is what
-  `conformance/loopholes.py` exists to surface.
+  `aegis/conformance/loopholes.py` exists to surface.
 - Taint is tracked per grant, not across agents. See the known-weak list in
   `CLAUDE.md`.
 - The PII scanner is a backstop, not the primary control. The primary control
   is that an agent never holds the raw callable.
+
+The live MCP client sends only `initialize`, `notifications/initialized` and
+`tools/list`; this is enforced in code (`ForbiddenMethod`) and tested. A way to
+make it send anything else is in scope and high severity. `--server-cmd`
+executes the command you give it, by design.
 
 Findings from the audit tool describe what a *schema* permits. They are not a
 penetration test of a running service, and nothing in the audit path executes a

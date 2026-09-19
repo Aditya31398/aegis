@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from aegis.audit import AuditLog
 from aegis.decision import PolicyViolation

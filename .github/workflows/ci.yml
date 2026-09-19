@@ -8,35 +8,60 @@ on:
     # The loophole corpus is the moat. Re-run weekly so a hole introduced by a
     # dependency or a payload added to the corpus surfaces without a commit.
     - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  gate:
+  lint:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install "ruff>=0.6"
+      - run: ruff check .
+
+  gate:
+    name: gate (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          # Path handling and default encodings differ; a Windows-only
+          # cp1252 crash in the AST check is how we learned this.
+          - { os: windows-latest, python: "3.12" }
+          - { os: macos-latest, python: "3.12" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python }}
           cache: pip
 
       - run: pip install -e ".[dev]"
 
-      # 1. Constitution — no policy may start unratified. No waiver exists.
+      # 1. Constitution -- no policy may start unratified. No waiver exists.
       - name: Ratify policies
         run: |
           for p in policies/*.yaml; do
-            [ "$(basename "$p")" = "_scratch_widened.yaml" ] && continue
-            python -m conformance.cli ratify --policy "$p"
+            aegis ratify --policy "$p"
           done
 
       # 2. Unit + conformance + invariants + drift detection.
@@ -45,22 +70,93 @@ jobs:
 
       # 3. Adversarial scenarios, with tool coverage enforced.
       - name: Conformance scenarios
-        run: >
-          python -m conformance.cli verify
-          --suites suites --policy policies/base.yaml --require-coverage
+        run: aegis verify --suites suites --policy policies/base.yaml --require-coverage
 
       # 4. Property-based invariants under random workloads.
       - name: Invariant fuzz
-        run: python -m conformance.cli fuzz --policy policies/base.yaml --iterations 20
+        run: aegis fuzz --policy policies/base.yaml --iterations 20
 
       - name: Invariant fuzz (concurrent)
-        run: python -m conformance.cli fuzz --policy policies/base.yaml --iterations 20 --async
+        run: aegis fuzz --policy policies/base.yaml --iterations 20 --async
 
       # 5. Loophole hunt against the accepted baseline.
       - name: Loophole audit
         run: >
-          python -m conformance.cli audit --policy policies/base.yaml
+          aegis audit --policy policies/base.yaml
           --baseline loopholes.baseline.yaml --fail-on high
+
+  package:
+    # Tests run against the source tree, which hides packaging bugs: a data
+    # file that is not in the wheel works fine from a checkout. This job
+    # builds the wheel and uses it from outside the repo, the way users do.
+    # (It exists because the constitution once lived outside the package and
+    # every installed build_kernel() crashed.)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check --strict dist/*
+
+      - name: Wheel contains only the aegis namespace
+        run: |
+          python - <<'EOF'
+          import sys, zipfile, glob
+          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          tops = {n.split("/")[0] for n in names if not n.split("/")[0].endswith(".dist-info")}
+          assert tops == {"aegis"}, tops
+          for need in ("aegis/constitution.yaml", "aegis/py.typed",
+                       "aegis/templates/policy.yaml", "aegis/templates/workflow.yml"):
+              assert need in names, need
+          print("ok:", len(names), "files")
+          EOF
+
+      - name: Install the wheel into a clean venv and use it from elsewhere
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          if [ -d "$RUNNER_TEMP/venv/Scripts" ]; then BIN="$RUNNER_TEMP/venv/Scripts"; else BIN="$RUNNER_TEMP/venv/bin"; fi
+          "$BIN/python" -m pip install --quiet dist/*.whl
+          cd "$RUNNER_TEMP" && mkdir smoke && cd smoke
+          "$BIN/aegis" --version
+          "$BIN/aegis" init . --ci
+          "$BIN/aegis" ratify --policy policies/base.yaml
+          "$BIN/aegis" verify --suites suites --policy policies/base.yaml --require-coverage
+          "$BIN/aegis" audit  --policy policies/base.yaml --format sarif --output out.sarif
+          "$BIN/python" -m aegis --version
+          "$BIN/python" - <<'EOF'
+          from aegis import ToolRegistry, build_kernel, load_policy
+          policy = load_policy("policies/base.yaml")
+          reg = ToolRegistry()
+          for name in policy.tool_names - {"agent.spawn"}:
+              reg.register(name, lambda **kw: "ok", effects={"read"})
+          kernel, root = build_kernel(policy, reg)   # ratifies with the packaged constitution
+          print(kernel.invoke(root, "kb.search", query="hello"))
+          EOF
+
+      - uses: actions/upload-artifact@v7
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: dist
+          path: dist/
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t aegis:ci .
+      - name: Image works without the repo mounted
+        run: |
+          docker run --rm aegis:ci --version
+          docker run --rm -v "$PWD/examples:/work:ro" aegis:ci \
+            mcp --manifest /work/sample_mcp_manifest.json --out /tmp/out --fail-on critical \
+            || [ $? -eq 1 ]      # 1 = findings (the sample is deliberately vulnerable)
 
   drift:
     # The check that catches "someone quietly made the policy weaker".
@@ -69,42 +165,78 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-
-      - run: pip install -e ".[dev]"
-
+      - run: pip install -e .
       - name: Detect privilege widening
         run: |
           mkdir -p /tmp/baseline
           git show "origin/${{ github.base_ref }}:policies/base.yaml" \
             > /tmp/baseline/base.yaml 2>/dev/null || {
               echo "no baseline policy on the target branch; skipping"; exit 0; }
-          python -m conformance.cli drift \
-            --baseline /tmp/baseline/base.yaml \
-            --candidate policies/base.yaml
+          aegis drift --baseline /tmp/baseline/base.yaml --candidate policies/base.yaml
 
   sample-audit:
     # Proves the product claim on every commit: the generated hardened policy
     # closes every critical finding it reports.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
+      - run: pip install -e .
       - name: Audit the sample manifest
-        run: >
-          python -m conformance.cli mcp
-          --manifest examples/sample_mcp_manifest.json
-          --out audit-out --fail-on critical || true
-      - uses: actions/upload-artifact@v4
+        run: |
+          set +e
+          aegis mcp --manifest examples/sample_mcp_manifest.json --out audit-out --fail-on critical
+          code=$?
+          # 1 is expected (deliberately vulnerable sample). 2/3 are real failures.
+          [ $code -le 1 ] || exit $code
+      - uses: actions/upload-artifact@v7
         with:
           name: sample-audit
           path: audit-out/
+
+  action:
+    # Exercise action.yml itself, the way a consumer's workflow would.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - id: audit
+        uses: ./
+        continue-on-error: true
+        with:
+          manifest: examples/sample_mcp_manifest.json
+          fail-on: critical
+      - name: Action failed on the vulnerable sample and reported outputs
+        env:
+          OUTCOME: ${{ steps.audit.outcome }}
+          FINDINGS: ${{ steps.audit.outputs.findings }}
+          BLOCKING: ${{ steps.audit.outputs.blocking }}
+          SARIF: ${{ steps.audit.outputs.sarif }}
+        run: |
+          echo "outcome=$OUTCOME findings=$FINDINGS blocking=$BLOCKING"
+          [ "$OUTCOME" = failure ]
+          [ "$FINDINGS" -gt 0 ] && [ "$BLOCKING" -gt 0 ]
+          python3 -c "import json,sys; assert json.load(open(sys.argv[1]))['version']=='2.1.0'" "$SARIF"
+
+  ci-ok:
+    # The single required status check. Branch protection points here, so the
+    # matrix can change without editing repository settings.
+    if: always()
+    needs: [lint, gate, package, docker, action, drift, sample-audit]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All required jobs passed (skipped counts as passed)
+        run: |
+          echo '${{ toJSON(needs) }}' | python3 -c "
+          import json, sys
+          bad = {k: v['result'] for k, v in json.load(sys.stdin).items()
+                 if v['result'] not in ('success', 'skipped')}
+          print('failed:', bad) if bad else print('all green')
+          sys.exit(1 if bad else 0)"

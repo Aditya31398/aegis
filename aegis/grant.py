@@ -157,7 +157,7 @@ class Grant:
     def attenuate(self, req: SpawnRequest) -> "Grant":
         """Derive a strictly weaker child grant, or raise PolicyError.
 
-        INVARIANT (verified by conformance/invariants.py):
+        INVARIANT (verified by aegis/conformance/invariants.py):
             child.tools ⊆ parent.tools
             child.budget ≤ parent.remaining * fraction
             child.depth  = parent.depth + 1

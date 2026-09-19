@@ -1,10 +1,10 @@
 """CLI -- wire this into CI as a required check.
 
-    python -m conformance.cli verify --suites suites/ --policy policies/base.yaml
-    python -m conformance.cli drift  --baseline policies/base.yaml \
+    aegis verify --suites suites/ --policy policies/base.yaml
+    aegis drift  --baseline policies/base.yaml \
                                      --candidate policies/base.yaml \
                                      --waive budget.usd_raised
-    python -m conformance.cli fuzz   --policy policies/base.yaml --iterations 8
+    aegis fuzz   --policy policies/base.yaml --iterations 8
 """
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ from .fixtures import build_fixture_registry
 from .loopholes import AuditReport, consolidate, format_audit, hunt
 from .invariants import afuzz, fuzz
 from .runner import ConformanceRunner, format_report
-from .spec import load_suite
 
 
 def _verify(args) -> int:
@@ -80,11 +79,28 @@ def _fuzz(args) -> int:
     return 0 if bad == 0 else 1
 
 
+def _emit(report, args, source) -> bool:
+    """Print/write the report. With --output the machine format goes to the
+    file and the human report stays on stdout for the CI log. Without it, a
+    machine format owns stdout exclusively. Returns True when stdout carries
+    the human report (so callers may append RESULT lines)."""
+    from . import export
+    if args.output:
+        fmt = args.format if args.format != "text" else "json"
+        export.write(report, fmt, args.output, source=source, threshold=args.fail_on)
+    elif args.format != "text":
+        print(export.dumps(report, args.format, source=source, threshold=args.fail_on))
+        return False
+    print(format_audit(report))
+    return True
+
+
 def _audit(args) -> int:
     policy = load_policy(args.policy)
     suites = sorted(Path(args.suites).glob("*.yaml")) if args.suites else []
     report = hunt(policy, suite_paths=suites, baseline=args.baseline)
-    print(format_audit(report))
+    if not _emit(report, args, args.policy):
+        return 1 if report.blocking(args.fail_on) else 0
     blocking = report.blocking(args.fail_on)
     if blocking:
         print(f"\nRESULT: FAIL -- {len(blocking)} unaccepted finding(s) at "
@@ -116,8 +132,7 @@ def _ratify(args) -> int:
 
 
 def _mcp(args) -> int:
-    from aegis.adapters.mcp import (build_registry, load_servers,
-                                    synthesize_policy, write_hardened)
+    from aegis.adapters.mcp import (build_registry, synthesize_policy, write_hardened)
     from .loopholes import load_baseline, probe_findings, static_findings
     from .mcp_checks import mcp_findings
     from .report import write_report
@@ -146,15 +161,25 @@ def _mcp(args) -> int:
     written = write_report(report, servers, outdir / "audit-report.md",
                            client=args.client, hardened_path=hardened.name)
 
-    print(format_audit(report))
-    print(f"\nreport:   {written}")
-    print(f"hardened: {hardened}")
+    from . import export
+    live = bool(args.server or args.server_cmd)
+    source = (outdir / "manifest.json") if live else args.manifest
+    json_path = export.write(report, "json", outdir / "audit.json",
+                             source=source, threshold=args.fail_on)
+    sarif_path = export.write(report, "sarif", outdir / "audit.sarif", source=source)
 
     blocking = report.blocking(args.fail_on)
+    if not _emit(report, args, source):
+        return 1 if blocking else 0
+    print(f"\nreport:   {written}")
+    print(f"hardened: {hardened}")
+    print(f"json:     {json_path}")
+    print(f"sarif:    {sarif_path}")
+
     if blocking:
         print(f"\nRESULT: FAIL -- {len(blocking)} finding(s) at {args.fail_on} or above")
         return 1
-    print(f"\nRESULT: PASS")
+    print("\nRESULT: PASS")
     return 0
 
 
@@ -185,41 +210,77 @@ def _mcp_servers(args, outdir: Path):
     live = []
     try:
         for url in args.server or []:
-            print(f"connecting to {url} ...")
+            print(f"connecting to {url} ...", file=sys.stderr)
             live.append(fetch_http(url, headers=headers, timeout=args.timeout))
         for cmd in args.server_cmd or []:
-            print(f"launching {cmd} ...")
+            print(f"launching {cmd} ...", file=sys.stderr)
             live.append(fetch_stdio(cmd, timeout=args.timeout))
     except McpClientError as exc:
         raise ValueError(f"live ingest failed: {exc}") from exc
 
     if live:
         for s in live:
-            print(f"  {s.name}: {len(s.tools)} tool(s) via {s.transport}")
+            print(f"  {s.name}: {len(s.tools)} tool(s) via {s.transport}", file=sys.stderr)
         path = outdir / "manifest.json"
         path.write_text(json.dumps(dump_manifest(live), indent=2), encoding="utf-8")
-        print(f"  saved {path} (replay with --manifest)")
+        print(f"  saved {path} (replay with --manifest)", file=sys.stderr)
     if not servers and not live:
         raise ValueError("give --manifest, --server or --server-cmd")
     return dedupe_names(servers + live)
 
 
+def _init(args) -> int:
+    from .scaffold import scaffold
+    try:
+        written = scaffold(Path(args.dir), ci=args.ci, force=args.force)
+    except FileExistsError as exc:
+        print(f"error: {exc} already exists (use --force to overwrite)", file=sys.stderr)
+        return 2
+    for w in written:
+        print(f"  created {w}")
+    print("\nnext steps (from that directory):\n"
+          "  aegis ratify --policy policies/base.yaml\n"
+          "  aegis verify --suites suites --policy policies/base.yaml --require-coverage\n"
+          "  aegis audit  --policy policies/base.yaml")
+    return 0
+
+
+_FORMATS = ["text", "json", "sarif"]
+
+# Exit codes are a public contract, like rule ids.
+EXIT_PASS, EXIT_FINDINGS, EXIT_USAGE, EXIT_INTERNAL = 0, 1, 2, 3
+_SEVERITY_CHOICES = ["critical", "high", "medium", "low", "info"]
+
+
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(prog="conformance")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    from .. import __version__
+    p = argparse.ArgumentParser(
+        prog="aegis",
+        description="Constraint enforcement and audit for AI agent tool surfaces.",
+        epilog="Exit codes: 0 pass; 1 findings or violations at/above threshold; "
+               "2 usage or input error; 3 internal error (please report).")
+    p.add_argument("--version", action="version", version=f"aegis {__version__}")
+    sub = p.add_subparsers(dest="cmd", required=True, metavar="COMMAND")
+
+    i = sub.add_parser("init", help="scaffold a policy, scenarios and baseline")
+    i.add_argument("dir", nargs="?", default=".")
+    i.add_argument("--ci", action="store_true",
+                   help="also write .github/workflows/aegis.yml")
+    i.add_argument("--force", action="store_true", help="overwrite existing files")
+    i.set_defaults(handler=_init)
 
     v = sub.add_parser("verify", help="run conformance scenarios")
     v.add_argument("--suites", default="suites")
     v.add_argument("--root", default=".")
     v.add_argument("--policy", default=None)
     v.add_argument("--require-coverage", action="store_true")
-    v.set_defaults(fn=_verify)
+    v.set_defaults(handler=_verify)
 
     d = sub.add_parser("drift", help="detect privilege widening")
     d.add_argument("--baseline", required=True)
     d.add_argument("--candidate", required=True)
     d.add_argument("--waive", nargs="*", default=[])
-    d.set_defaults(fn=_drift)
+    d.set_defaults(handler=_drift)
 
     f = sub.add_parser("fuzz", help="property-based invariant check")
     f.add_argument("--policy", required=True)
@@ -230,20 +291,22 @@ def main(argv=None) -> int:
                         "invariants while calls are in flight")
     f.add_argument("--batch", type=int, default=12,
                    help="operations launched together per round (with --async)")
-    f.set_defaults(fn=_fuzz)
+    f.set_defaults(handler=_fuzz)
 
     a = sub.add_parser("audit", help="hunt for loopholes")
     a.add_argument("--policy", required=True)
     a.add_argument("--suites", default="suites")
     a.add_argument("--baseline", default="loopholes.baseline.yaml")
-    a.add_argument("--fail-on", default="high",
-                   choices=["critical", "high", "medium", "low", "info"])
-    a.set_defaults(fn=_audit)
+    a.add_argument("--fail-on", default="high", choices=_SEVERITY_CHOICES)
+    a.add_argument("--format", default="text", choices=_FORMATS)
+    a.add_argument("--output", default=None,
+                   help="write json/sarif to this file; text stays on stdout")
+    a.set_defaults(handler=_audit)
 
     r = sub.add_parser("ratify", help="check a policy against the constitution")
     r.add_argument("--policy", required=True)
     r.add_argument("--constitution", default=None)
-    r.set_defaults(fn=_ratify)
+    r.set_defaults(handler=_ratify)
 
     m = sub.add_parser("mcp", help="audit MCP servers from a manifest or live endpoint")
     m.add_argument("--manifest", default=None,
@@ -262,12 +325,32 @@ def main(argv=None) -> int:
     m.add_argument("--out", default="audit-out")
     m.add_argument("--client", default="")
     m.add_argument("--baseline", default=None)
-    m.add_argument("--fail-on", default="high",
-                   choices=["critical", "high", "medium", "low", "info"])
-    m.set_defaults(fn=_mcp)
+    m.add_argument("--fail-on", default="high", choices=_SEVERITY_CHOICES)
+    m.add_argument("--format", default="text", choices=_FORMATS,
+                   help="stdout format; audit.json and audit.sarif are always "
+                        "written to --out")
+    m.add_argument("--output", default=None)
+    m.set_defaults(handler=_mcp)
 
     args = p.parse_args(argv)
-    return args.fn(args)
+    try:
+        return args.handler(args)
+    except FileNotFoundError as exc:
+        print(f"error: {exc.filename or exc}: file not found", file=sys.stderr)
+        return 2
+    except (ValueError, KeyError) as exc:
+        # PolicyError and malformed input land here: a usage problem, not a finding.
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        # Never let a crash exit 1: in CI, 1 means "findings", and a pipeline
+        # that cannot tell a hole from a bug will learn to ignore both.
+        import traceback
+        traceback.print_exc()
+        print(f"internal error: {type(exc).__name__}: {exc}\n"
+              f"please report it at https://github.com/Aditya31398/aegis/issues",
+              file=sys.stderr)
+        return EXIT_INTERNAL
 
 
 if __name__ == "__main__":

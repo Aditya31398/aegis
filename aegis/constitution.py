@@ -218,7 +218,8 @@ class Constitution:
             raise UnconstitutionalPolicy(violations)
 
 
-DEFAULT_CONSTITUTION = Path(__file__).resolve().parents[1] / "constitution.yaml"
+# Shipped inside the package so an installed wheel can ratify without a checkout.
+DEFAULT_CONSTITUTION = Path(__file__).resolve().parent / "constitution.yaml"
 
 
 def default_constitution() -> Constitution:

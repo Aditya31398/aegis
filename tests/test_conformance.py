@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from aegis import Grant, Kernel, PolicyViolation, load_policy, parse_policy
-from conformance import (ConformanceRunner, build_fixture_registry, check_drift,
-                         diff_policies, format_report, fuzz, load_suite, widenings)
+from aegis.conformance import (ConformanceRunner, build_fixture_registry, check_drift,
+                         format_report, fuzz, load_suite, widenings)
 
 ROOT = Path(__file__).resolve().parents[1]
 SUITES = sorted((ROOT / "suites").glob("*.yaml"))

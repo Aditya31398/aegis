@@ -1,21 +1,138 @@
 # Aegis — constraint enforcement for agent systems
 
-Two pieces:
+[![CI](https://github.com/Aditya31398/aegis/actions/workflows/ci.yml/badge.svg)](https://github.com/Aditya31398/aegis/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/aegis-guard)](https://pypi.org/project/aegis-guard/)
+[![Python](https://img.shields.io/pypi/pyversions/aegis-guard)](https://pypi.org/project/aegis-guard/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-1. **`aegis/`** — a kernel that mediates every effect an agent can cause, and a
-   declarative policy language that defines what is permitted.
-2. **`conformance/`** — a regression framework that proves the constraints
-   still hold after a change, and that the *policy itself* didn't get weaker.
+Aegis does two jobs:
 
+1. **Runtime enforcement.** A kernel mediates every tool call an agent makes
+   against a declarative YAML policy: capability allowlists, argument
+   constraints, spend and time budgets, PII/taint egress rules, and bounded
+   agent spawning. Denied calls never execute.
+2. **Regression and audit.** A conformance framework proves the constraints
+   still hold after a change, detects when a policy is quietly weakened, hunts
+   for loopholes in your own policies, and audits third-party MCP servers.
+
+## Install
+
+```bash
+pip install aegis-guard          # Python 3.10+, one dependency (PyYAML)
+aegis --version
 ```
-python -m pytest -q                                    # full regression gate
-python -m conformance.cli verify --suites suites --policy policies/base.yaml
-python -m conformance.cli fuzz   --policy policies/base.yaml
-python -m conformance.cli drift  --baseline policies/base.yaml --candidate policies/new.yaml
-python examples/demo.py
+
+Or run the container, no Python needed:
+
+```bash
+docker run --rm -v "$PWD:/work" ghcr.io/aditya31398/aegis --help
 ```
+
+## Quickstart: audit an MCP server
+
+```bash
+# a live server (only initialize + tools/list are ever sent; no tool is called)
+aegis mcp --server https://mcp.example.com/mcp --bearer-env MCP_TOKEN --out audit-out
+
+# or a saved manifest / claude_desktop_config.json
+aegis mcp --manifest claude_desktop_config.json --out audit-out
+```
+
+`audit-out/` gets a Markdown report, `audit.json`, `audit.sarif`, and a
+`hardened-policy.yaml` you can adopt.
+
+## Quickstart: enforce a policy on your own agents
+
+```bash
+aegis init . --ci        # policy, adversarial scenarios, baseline, GitHub workflow
+aegis ratify --policy policies/base.yaml
+aegis verify --suites suites --policy policies/base.yaml --require-coverage
+aegis audit  --policy policies/base.yaml
+```
+
+The scaffold passes every check out of the box, so the first failure you see
+is one you caused. Then, in code:
+
+```python
+from aegis import Agent, PolicyViolation, ToolRegistry, build_kernel, load_policy
+
+registry = ToolRegistry()
+
+@registry.tool("fs.read", effects={"read"}, classification="internal")
+def read_file(path: str) -> str:
+    return open(path).read()
+
+kernel, root = build_kernel(load_policy("quickstart-policy.yaml"), registry)
+agent = Agent(root, kernel)
+
+agent.tools.fs__read(path="/workspace/notes.md")        # allowed
+agent.tools.fs__read(path="/etc/passwd")                # PolicyViolation: never executed
+await agent.atools.fs__read(path="/workspace/a.md")     # async runtimes too
+```
+
+Runnable version: [`examples/quickstart.py`](examples/quickstart.py) with its
+one-tool [policy](examples/quickstart-policy.yaml). `build_kernel` refuses to
+start an unconstitutional policy — including one that grants a tool you never
+registered — and every decision, allowed or denied, lands in a hash-chained
+audit log (`kernel.audit`).
+
+## Using it in CI
+
+**GitHub Actions** — pin to a release tag:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write     # only if upload-sarif is on
+
+steps:
+  - uses: actions/checkout@v7
+  - uses: Aditya31398/aegis@v0.2.0
+    with:
+      manifest: mcp-servers.json          # and/or  server: https://…/mcp
+      baseline: aegis-baseline.yaml
+      fail-on: high
+      upload-sarif: "true"                # findings appear in the Security tab
+      comment-on-pr: "true"
+```
+
+**Anywhere else** — `aegis` is a normal CLI with a stable contract:
+
+| | |
+|---|---|
+| Exit codes | `0` pass · `1` findings/violations at or above `--fail-on` · `2` bad input or usage · `3` internal error |
+| Formats | `--format text\|json\|sarif`, `--output FILE` (text stays on stdout for the log) |
+| JSON schema | `aegis.audit/v1`; fields are only ever added |
+| Fingerprints | stable per finding; SARIF `partialFingerprints` so dashboards dedupe across runs |
+| Accepted risk | baselined findings stay in the output as SARIF *suppressions* with the written reason |
+
+A broken policy file is always exit `2`, never `1`, so a pipeline can tell
+"your policy has holes" from "your policy file is malformed".
+
+```bash
+aegis ratify --policy policies/base.yaml
+aegis verify --suites suites --policy policies/base.yaml --require-coverage
+aegis fuzz   --policy policies/base.yaml --iterations 20 --async
+aegis audit  --policy policies/base.yaml --format sarif --output aegis.sarif
+aegis drift  --baseline main-base.yaml --candidate policies/base.yaml
+```
+
+## Supply chain
+
+Releases are built once in CI from a tag, published to PyPI through trusted
+publishing (no long-lived token exists), and carry signed build provenance:
+
+```bash
+gh attestation verify aegis_guard-0.2.0-py3-none-any.whl --repo Aditya31398/aegis
+gh attestation verify oci://ghcr.io/aditya31398/aegis:0.2.0 --repo Aditya31398/aegis
+```
+
+The container runs as a non-root user and ships an SBOM. The kernel has one
+runtime dependency (PyYAML) and is small enough to vendor.
 
 ---
+
+The rest of this document explains how it works and why it is built this way.
 
 ## The load-bearing idea
 
@@ -127,7 +244,7 @@ not merely "an error was returned".
       rule: capability.arg_prefix
 ```
 
-### 2. Invariants under fuzz (`conformance/invariants.py`)
+### 2. Invariants under fuzz (`aegis/conformance/invariants.py`)
 
 A random workload generator drives the kernel with thousands of arbitrary
 call/spawn/revoke sequences, half hostile payloads and half well-formed calls
@@ -154,7 +271,7 @@ Any exception that isn't a `PolicyViolation` is a framework bug and fails the
 run. This layer found a real one during development: `agent.spawn` routed
 through the tool path crashed rather than denying.
 
-### 3. Privilege drift (`conformance/drift.py`)
+### 3. Privilege drift (`aegis/conformance/drift.py`)
 
 The subtle regression isn't broken enforcement — the suite catches that. It's
 someone quietly *loosening the policy*, after which every test still passes
@@ -181,15 +298,6 @@ tightening counts as widening.
 - tampering with an audit record breaks `verify()`
 - a sibling swarm with `budget_fraction: 1.0` each still can't outspend the root
 - coverage: every granted tool must be exercised by some scenario
-
-## Wiring into CI
-
-```yaml
-- run: python -m pytest -q
-- run: python -m conformance.cli verify --suites suites --policy policies/base.yaml --require-coverage
-- run: python -m conformance.cli fuzz --policy policies/base.yaml --iterations 20
-- run: python -m conformance.cli drift --baseline $(git show origin/main:policies/base.yaml > /tmp/b.yaml; echo /tmp/b.yaml) --candidate policies/base.yaml
-```
 
 ## Adding a tool — the checklist
 
@@ -220,7 +328,7 @@ are the same ones legal systems evolved to handle.
 
 | Layer | File | Amended by | Waivable? |
 |---|---|---|---|
-| **Constitution** | `constitution.yaml` | editing the document | **no** — no flag, no config, no override |
+| **Constitution** | `aegis/constitution.yaml` | editing the document | **no** — no flag, no config, no override |
 | **Statute** | `policies/*.yaml` | a PR that widens | yes, `--waive <code>` with review |
 | **Case law** | `suites/*.yaml` | adding scenarios | n/a — precedents accumulate |
 | **Accepted holes** | `loopholes.baseline.yaml` | adding a fingerprint | yes, with a written reason and an owner |
@@ -241,12 +349,12 @@ C7  No phantom grants          — a granted tool must actually exist
 ```
 
 There is deliberately no waiver path. The only route past a clause is to edit
-`constitution.yaml`, which is a loud diff in review rather than a flag buried
+`aegis/constitution.yaml`, which is a loud diff in review rather than a flag buried
 in a CI invocation. `tests/test_governance.py` asserts every clause can
 actually fire — a clause that cannot fail is decoration.
 
 ```
-python -m conformance.cli ratify --policy policies/base.yaml
+aegis ratify --policy policies/base.yaml
 ```
 
 ### Loophole hunting
@@ -267,7 +375,7 @@ answers *"what gets through that I never thought to test?"* — three techniques
    re-runs. A mutation that flips DENY to ALLOW is a bypass.
 
 ```
-python -m conformance.cli audit --policy policies/base.yaml --fail-on high
+aegis audit --policy policies/base.yaml --fail-on high
 ```
 
 **On the first run against the policy shipped in this repo it found 23 holes**
@@ -305,17 +413,6 @@ another:
 A weakened `fs.read` prefix still ratifies, still passes every scenario, and is
 caught by `audit` and `drift`. That is the point of having all three.
 
-## Updated CI wiring
-
-```yaml
-- run: python -m conformance.cli ratify --policy policies/base.yaml
-- run: python -m pytest -q
-- run: python -m conformance.cli verify --suites suites --policy policies/base.yaml --require-coverage
-- run: python -m conformance.cli fuzz  --policy policies/base.yaml --iterations 20
-- run: python -m conformance.cli audit --policy policies/base.yaml --fail-on high
-- run: python -m conformance.cli drift --baseline /tmp/main-base.yaml --candidate policies/base.yaml
-```
-
 ## Prior art
 
 This overlaps with real work; see the chat discussion for the comparison. In
@@ -325,7 +422,7 @@ tool-call-shaped; AgentSpec (ICSE '26) is the closest academic relative for
 runtime enforcement. The part that is genuinely thin in all of them is the
 *regression* half — adversarial conformance, privilege-drift detection and
 automated loophole discovery. If you adopt an existing engine, port
-`conformance/` onto it rather than rebuilding it.
+`aegis/conformance/` onto it rather than rebuilding it.
 
 ---
 
@@ -336,7 +433,7 @@ the same machinery at an MCP server you did not write, which is what makes this
 usable as a service rather than a library.
 
 ```
-python -m conformance.cli mcp --manifest server-manifest.json \
+aegis mcp --manifest server-manifest.json \
                               --out audit-out --client "Acme"
 ```
 
@@ -344,8 +441,8 @@ Accepts a `tools/list` response, a `claude_desktop_config.json`, or a bundle of
 several servers. Or skip the export and point it at the live server:
 
 ```
-python -m conformance.cli mcp --server https://mcp.example.com/mcp                               --bearer-env MCP_TOKEN --out audit-out
-python -m conformance.cli mcp --server-cmd "npx -y @modelcontextprotocol/server-filesystem /tmp"                               --out audit-out
+aegis mcp --server https://mcp.example.com/mcp                               --bearer-env MCP_TOKEN --out audit-out
+aegis mcp --server-cmd "npx -y @modelcontextprotocol/server-filesystem /tmp"                               --out audit-out
 ```
 
 The live client performs the real MCP handshake (Streamable HTTP with JSON or

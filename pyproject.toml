@@ -4,36 +4,64 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aegis-guard"
-version = "0.1.0"
-description = "Capability-based constraint enforcement for agent systems, with a regression suite that hunts its own loopholes."
+dynamic = ["version"]
+description = "Capability-based constraint enforcement for AI agents, with a regression suite that hunts its own loopholes and an MCP server auditor."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
-keywords = ["ai-agents", "mcp", "security", "guardrails", "policy", "authorization"]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Aegis contributors" }]
+keywords = ["ai-agents", "mcp", "model-context-protocol", "security", "guardrails",
+            "policy", "authorization", "llm-security", "sarif"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Operating System :: OS Independent",
   "Topic :: Security",
+  "Topic :: Software Development :: Quality Assurance",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
 ]
 dependencies = ["PyYAML>=6.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4"]
+dev = ["pytest>=7.4", "ruff>=0.6", "build>=1.2"]
 
 [project.scripts]
-aegis = "conformance.cli:main"
+aegis = "aegis.conformance.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/Aditya31398/aegis"
+Documentation = "https://github.com/Aditya31398/aegis#readme"
 Issues = "https://github.com/Aditya31398/aegis/issues"
+Changelog = "https://github.com/Aditya31398/aegis/blob/main/CHANGELOG.md"
+Security = "https://github.com/Aditya31398/aegis/security/policy"
 
-[tool.setuptools]
-packages = ["aegis", "aegis.guards", "aegis.adapters", "conformance"]
+[tool.setuptools.dynamic]
+version = { attr = "aegis.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["aegis*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.yaml"]
+aegis = ["py.typed", "*.yaml", "templates/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+# Correctness only. Style churn on a security codebase makes diffs harder to
+# review, which is the opposite of what this project needs.
+select = ["E9", "F", "B006", "B008", "B017", "B023", "PLE"]

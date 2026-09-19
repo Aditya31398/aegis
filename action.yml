@@ -12,7 +12,18 @@ branding:
 inputs:
   manifest:
     description: "Path to an MCP tools/list response, a client config, or a server bundle."
-    required: true
+    required: false
+    default: ""
+  server:
+    description: >-
+      Streamable HTTP MCP endpoint to audit live (instead of, or as well as, a
+      manifest). Only initialize and tools/list are ever sent.
+    required: false
+    default: ""
+  bearer-token:
+    description: "Bearer token for `server`. Pass a secret: ${{ secrets.MCP_TOKEN }}."
+    required: false
+    default: ""
   baseline:
     description: >-
       Path to an accepted-findings file. Findings whose fingerprint appears there
@@ -24,11 +35,17 @@ inputs:
     required: false
     default: "high"
   out:
-    description: "Directory for the report and the generated hardened policy."
+    description: "Directory for the report, JSON, SARIF and the generated hardened policy."
     required: false
     default: "audit-out"
+  upload-sarif:
+    description: >-
+      Upload findings to GitHub code scanning. Needs `security-events: write`;
+      unavailable on pull requests from forks.
+    required: false
+    default: "false"
   comment-on-pr:
-    description: "Post the report summary as a PR comment (needs pull-requests: write)."
+    description: "Post the summary as a PR comment, updated in place (needs pull-requests: write)."
     required: false
     default: "false"
 
@@ -36,59 +53,119 @@ outputs:
   report:
     description: "Path to the generated Markdown report."
     value: ${{ steps.audit.outputs.report }}
+  sarif:
+    description: "Path to the SARIF file."
+    value: ${{ steps.audit.outputs.sarif }}
+  json:
+    description: "Path to the machine-readable JSON result (schema aegis.audit/v1)."
+    value: ${{ steps.audit.outputs.json }}
   hardened-policy:
     description: "Path to the generated hardened policy."
     value: ${{ steps.audit.outputs.hardened }}
   findings:
     description: "Total number of findings."
     value: ${{ steps.audit.outputs.findings }}
+  blocking:
+    description: "Number of unaccepted findings at or above fail-on."
+    value: ${{ steps.audit.outputs.blocking }}
 
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: "3.12"
 
+    # Install the code at the exact ref this action was pinned to, so
+    # `uses: Aditya31398/aegis@v0.2.0` always runs v0.2.0's checks.
     - name: Install aegis
       shell: bash
-      run: pip install --quiet "aegis-guard @ git+https://github.com/Aditya31398/aegis@main"
+      run: pip install --quiet "${{ github.action_path }}"
 
     - name: Run audit
       id: audit
       shell: bash
+      env:
+        AEGIS_MCP_TOKEN: ${{ inputs.bearer-token }}
+        IN_MANIFEST: ${{ inputs.manifest }}
+        IN_SERVER: ${{ inputs.server }}
+        IN_BASELINE: ${{ inputs.baseline }}
+        IN_OUT: ${{ inputs.out }}
+        IN_FAIL_ON: ${{ inputs.fail-on }}
       run: |
         set +e
-        args=(--manifest "${{ inputs.manifest }}" --out "${{ inputs.out }}"
-              --fail-on "${{ inputs.fail-on }}")
-        if [ -n "${{ inputs.baseline }}" ]; then
-          args+=(--baseline "${{ inputs.baseline }}")
+        args=(--out "$IN_OUT" --fail-on "$IN_FAIL_ON")
+        [ -n "$IN_MANIFEST" ] && args+=(--manifest "$IN_MANIFEST")
+        [ -n "$IN_SERVER" ]   && args+=(--server "$IN_SERVER")
+        [ -n "$IN_SERVER" ] && [ -n "$AEGIS_MCP_TOKEN" ] && args+=(--bearer-env AEGIS_MCP_TOKEN)
+        [ -n "$IN_BASELINE" ] && args+=(--baseline "$IN_BASELINE")
+        aegis mcp "${args[@]}"
+        status=$?
+        {
+          echo "report=$IN_OUT/audit-report.md"
+          echo "sarif=$IN_OUT/audit.sarif"
+          echo "json=$IN_OUT/audit.json"
+          echo "hardened=$IN_OUT/hardened-policy.yaml"
+        } >> "$GITHUB_OUTPUT"
+        if [ -f "$IN_OUT/audit.json" ]; then
+          python -c "
+        import json, sys
+        d = json.load(open(sys.argv[1], encoding='utf-8'))['summary']
+        print(f\"findings={d['total']}\")
+        print(f\"blocking={d['blocking']}\")" "$IN_OUT/audit.json" >> "$GITHUB_OUTPUT"
         fi
-        python -m conformance.cli mcp "${args[@]}" | tee /tmp/aegis.log
-        status=${PIPESTATUS[0]}
-        echo "report=${{ inputs.out }}/audit-report.md" >> "$GITHUB_OUTPUT"
-        echo "hardened=${{ inputs.out }}/hardened-policy.yaml" >> "$GITHUB_OUTPUT"
-        echo "findings=$(grep -oE '^[0-9]+ findings' /tmp/aegis.log | head -1 | cut -d' ' -f1)" \
-          >> "$GITHUB_OUTPUT"
-        exit $status
+        # 1 = findings (reported below, fails the job at the end).
+        # 2/3 = usage or internal error: fail now, there is no report.
+        [ $status -ge 2 ] && exit $status
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+        exit 0
 
     - name: Job summary
       if: always()
       shell: bash
+      env:
+        REPORT: ${{ inputs.out }}/audit-report.md
       run: |
         {
           echo "## Agent tool-surface audit"
           echo
           # Summary + top five only. The full report is in the artifact; a
           # 600-line job summary is a summary nobody reads.
-          sed -n '/^## Summary/,/^## Findings/p' "${{ inputs.out }}/audit-report.md" \
-            | sed '$d'
+          sed -n '/^## Summary/,/^## Findings/p' "$REPORT" | sed '$d'
           echo
-          sed -n '/^## What to do first/,$p' "${{ inputs.out }}/audit-report.md"
-        } >> "$GITHUB_STEP_SUMMARY" || echo "audit produced no report" >> "$GITHUB_STEP_SUMMARY"
+          sed -n '/^## What to do first/,$p' "$REPORT"
+        } > "$RUNNER_TEMP/aegis-summary.md" 2>/dev/null \
+          || echo "audit produced no report" > "$RUNNER_TEMP/aegis-summary.md"
+        cat "$RUNNER_TEMP/aegis-summary.md" >> "$GITHUB_STEP_SUMMARY"
 
-    - uses: actions/upload-artifact@v4
+    - name: Comment on PR
+      if: always() && inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        { echo "<!-- aegis-audit -->"; cat "$RUNNER_TEMP/aegis-summary.md"; } > "$RUNNER_TEMP/body.md"
+        # Update our previous comment instead of adding one per push.
+        gh pr comment "$PR" --edit-last --body-file "$RUNNER_TEMP/body.md" 2>/dev/null \
+          || gh pr comment "$PR" --body-file "$RUNNER_TEMP/body.md"
+
+    - name: Upload to code scanning
+      if: always() && inputs.upload-sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: ${{ inputs.out }}/audit.sarif
+        category: aegis-mcp
+
+    - uses: actions/upload-artifact@v7
       if: always()
       with:
         name: aegis-audit
         path: ${{ inputs.out }}/
+
+    - name: Fail on blocking findings
+      if: steps.audit.outputs.status == '1'
+      shell: bash
+      run: |
+        echo "::error::${{ steps.audit.outputs.blocking }} unaccepted finding(s) at ${{ inputs.fail-on }} or above"
+        exit 1

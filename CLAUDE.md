@@ -10,7 +10,7 @@ Two halves that must stay separable:
 - `aegis/` — a kernel that mediates every effect an agent can cause. Policies
   are YAML data, grants attenuate on spawn, guards fail closed, every decision
   lands in a hash-chained audit log.
-- `conformance/` — the regression framework. Adversarial scenarios, property
+- `aegis/conformance/` — the regression framework. Adversarial scenarios, property
   fuzzing, privilege-drift detection, and a loophole hunter that attacks our
   own policies. This half is the differentiated part of the project.
 
@@ -22,17 +22,20 @@ which is what makes the tooling usable as a service.
 ```bash
 pip install -e ".[dev]"
 
-pytest -q                                                    # 152 tests, all must pass
-python -m conformance.cli ratify  --policy policies/base.yaml
-python -m conformance.cli verify  --suites suites --policy policies/base.yaml --require-coverage
-python -m conformance.cli fuzz    --policy policies/base.yaml --iterations 20
-python -m conformance.cli fuzz    --policy policies/base.yaml --iterations 20 --async
-python -m conformance.cli audit   --policy policies/base.yaml --baseline loopholes.baseline.yaml
-python -m conformance.cli drift   --baseline old.yaml --candidate policies/base.yaml
-python -m conformance.cli mcp     --manifest examples/sample_mcp_manifest.json --out audit-out
-python -m conformance.cli mcp     --server https://host/mcp --bearer-env MCP_TOKEN --out audit-out
+ruff check .
+pytest -q                                                    # 200 tests, all must pass
+aegis ratify  --policy policies/base.yaml
+aegis verify  --suites suites --policy policies/base.yaml --require-coverage
+aegis fuzz    --policy policies/base.yaml --iterations 20
+aegis fuzz    --policy policies/base.yaml --iterations 20 --async
+aegis audit   --policy policies/base.yaml --baseline loopholes.baseline.yaml
+aegis drift   --baseline old.yaml --candidate policies/base.yaml
+aegis mcp     --manifest examples/sample_mcp_manifest.json --out audit-out
+aegis mcp     --server https://host/mcp --bearer-env MCP_TOKEN --out audit-out
 
 python examples/demo.py
+python examples/quickstart.py
+python -m build            # then see the `package` CI job for the wheel smoke test
 ```
 
 ## Invariants — do not break these
@@ -63,8 +66,15 @@ failing, the fix is the code, not the test.
    is `initialize`, `notifications/initialized`, `tools/list` and nothing
    else. Do not add `tools/call` "just to probe" — auditing a server by
    running its destructive tools is an incident, not an audit.
-7. **Constitutional clauses have no waiver.** If a clause is inconvenient, the
-   fix is to amend `constitution.yaml` in a visible diff, never to add a
+7. **Exit codes are a contract.** `0` pass, `1` findings, `2` bad input,
+   `3` internal error. Never let an exception escape as exit 1: a pipeline
+   that cannot tell a hole from a crash learns to ignore both. Malformed
+   policies must raise `PolicyError`.
+8. **The wheel must work outside the repo.** Anything read at runtime lives
+   under `aegis/` and is listed in `package-data`. The `package` CI job
+   installs the wheel into a clean venv and runs from another directory.
+9. **Constitutional clauses have no waiver.** If a clause is inconvenient, the
+   fix is to amend `aegis/constitution.yaml` in a visible diff, never to add a
    bypass flag.
 
 ## Working agreements
@@ -96,9 +106,14 @@ aegis/
   guards/         capability, spawn, budget, data (PII + taint)
   adapters/mcp.py ingest → synthesize → harden
   adapters/mcp_client.py  live handshake (HTTP/stdio), listing-only
-conformance/
+  constitution.yaml   shipped in the wheel
+  templates/      what `aegis init` scaffolds; must equal the repo copies
+aegis/conformance/
+  cli.py          the `aegis` command; exit codes defined here
+  export.py       JSON (aegis.audit/v1) and SARIF 2.1.0
+  scaffold.py     `aegis init`
   runner.py       scenario execution; asserts denials produced no side effect
-  invariants.py   six properties re-checked after every fuzzed operation
+  invariants.py   seven properties re-checked after every fuzzed operation
   drift.py        privilege-widening detector
   loopholes.py    static + payload probe + metamorphic mutation
   mcp_checks.py   omnibus, shadowing, description injection, secrets
@@ -127,6 +142,7 @@ Honest list. Do not paper over these.
 
 ## What not to build yet
 
-- No dashboard, no web UI, no hosted service. The CLI and the GitHub Action
-  are the distribution surface until someone is paying.
+- No dashboard, no web UI, no hosted service. The CLI, the GitHub Action, the
+  container and SARIF (which plugs into dashboards people already have) are
+  the distribution surface until someone is paying.
 - No new payload categories before the existing ones have negative controls.

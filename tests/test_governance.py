@@ -9,13 +9,13 @@ import yaml
 
 from aegis.constitution import (Constitution, UnconstitutionalPolicy,
                                 default_constitution)
-from aegis.guards.data import normalize, scan_pii
+from aegis.guards.data import scan_pii
 from aegis.kernel import build_kernel
 from aegis.policy import load_policy, parse_policy
-from conformance.fixtures import build_fixture_registry
-from conformance.loopholes import (SEVERITIES, hunt, metamorphic_findings,
+from aegis.conformance.fixtures import build_fixture_registry
+from aegis.conformance.loopholes import (SEVERITIES, hunt, metamorphic_findings,
                                    probe_findings, static_findings)
-from conformance.spec import load_suite
+from aegis.conformance.spec import load_suite
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "policies" / "base.yaml"

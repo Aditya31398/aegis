@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 from aegis import Agent, Grant, Kernel, PolicyViolation, load_policy, parse_policy
-from conformance import build_fixture_registry
+from aegis.conformance import build_fixture_registry
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "policies" / "base.yaml"
@@ -225,7 +225,7 @@ def test_async_toolbox_exposes_no_callable():
 # ----------------------------------------------------------------------
 # Async fuzzing: invariants re-checked while calls are in flight
 # ----------------------------------------------------------------------
-from conformance import afuzz  # noqa: E402
+from aegis.conformance import afuzz  # noqa: E402
 
 
 @pytest.mark.parametrize("seed", range(6))
@@ -272,7 +272,7 @@ def test_fuzz_workload_reaches_budget_exhaustion():
     """The fuzzer is only as good as the states it reaches. If the workload
     stops admitting calls (e.g. a policy tightening makes every benign call
     fail), budget invariants go vacuously green. Guard against that."""
-    from conformance import invariants as inv
+    from aegis.conformance import invariants as inv
     made = []
 
     def factory(reg):

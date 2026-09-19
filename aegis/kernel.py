@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import threading
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 from .audit import AuditLog
 from .decision import PolicyViolation, Verdict

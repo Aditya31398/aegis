@@ -1,7 +1,7 @@
 """Declarative policy: the single source of truth for what an agent may do.
 
 Policies are data, not code. That matters for three reasons:
-  1. They can be diffed (see conformance/drift.py) to detect privilege widening.
+  1. They can be diffed (see aegis/conformance/drift.py) to detect privilege widening.
   2. They can be signed/pinned and shipped independently of agent code.
   3. An agent cannot author or mutate one at runtime.
 """
@@ -187,7 +187,14 @@ _TOP_LEVEL = {"name", "version", "tools", "effects", "budget", "data", "spawn", 
 
 def load_policy(path: str | Path) -> Policy:
     path = Path(path)
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise PolicyError(f"{path}: not valid YAML: {exc}") from exc
+    if raw is None:
+        raw = {}                        # an empty file is an empty (unratifiable) policy
+    if not isinstance(raw, dict):
+        raise PolicyError(f"{path}: a policy must be a mapping, got {type(raw).__name__}")
     base = None
     if "extends" in raw:
         base = load_policy(path.parent / raw["extends"])
@@ -195,6 +202,22 @@ def load_policy(path: str | Path) -> Policy:
 
 
 def parse_policy(raw: dict[str, Any], base: Policy | None = None,
+                 source: str = "<policy>") -> Policy:
+    """Parse a policy mapping. Any structural problem -- a list where a
+    mapping belongs, a string where a number does -- is a PolicyError naming
+    the source, never a TypeError from deep inside the parser. Callers (and
+    CI exit codes) depend on telling "bad input" apart from "framework bug"."""
+    if not isinstance(raw, dict):
+        raise PolicyError(f"{source}: a policy must be a mapping, got {type(raw).__name__}")
+    try:
+        return _parse_policy(raw, base=base, source=source)
+    except PolicyError:
+        raise
+    except (TypeError, AttributeError, ValueError, KeyError) as exc:
+        raise PolicyError(f"{source}: malformed policy: {exc}") from exc
+
+
+def _parse_policy(raw: dict[str, Any], base: Policy | None = None,
                  source: str = "<dict>") -> Policy:
     unknown = set(raw) - _TOP_LEVEL
     if unknown:
