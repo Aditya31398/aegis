@@ -3,13 +3,13 @@
 ## Supported versions
 
 Security fixes land on the latest minor release. Pin an exact version in CI
-(`aegis-guard==X.Y.Z`, or the action at `@vX.Y.Z`) and let Dependabot propose
+(`aegis-kernel==X.Y.Z`, or the action at `@vX.Y.Z`) and let Dependabot propose
 upgrades, so a new check arrives in a reviewed PR.
 
 | Version | Supported |
 |---|---|
-| 0.2.x | yes |
-| < 0.2 | no |
+| 0.4.x | yes |
+| < 0.4 | no (0.1–0.3 were never on PyPI) |
 
 ## Verifying what you install
 
@@ -17,7 +17,7 @@ Every release artifact carries signed build provenance from the release
 workflow. Verify before deploying:
 
 ```bash
-gh attestation verify aegis_guard-*.whl --repo Aditya31398/aegis
+gh attestation verify aegis_kernel-*.whl --repo Aditya31398/aegis
 gh attestation verify oci://ghcr.io/aditya31398/aegis:<version> --repo Aditya31398/aegis
 ```
 

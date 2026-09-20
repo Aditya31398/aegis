@@ -5,7 +5,7 @@ Releases are cut by pushing a tag. Nothing is published from a laptop.
 ```bash
 # 1. bump aegis/__init__.py __version__, move CHANGELOG "Unreleased" under the new version
 # 2. merge to main with CI green
-git tag v0.3.0 && git push origin v0.3.0
+git tag v0.4.0 && git push origin v0.4.0
 ```
 
 `.github/workflows/release.yml` then:
@@ -29,7 +29,7 @@ These need an account holder and cannot be done from CI.
 
 | Field | Value |
 |---|---|
-| PyPI project name | `aegis-guard` |
+| PyPI project name | `aegis-kernel` |
 | Owner | `Aditya31398` |
 | Repository | `aegis` |
 | Workflow | `release.yml` |

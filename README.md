@@ -1,8 +1,8 @@
 # Aegis — constraint enforcement for agent systems
 
 [![CI](https://github.com/Aditya31398/aegis/actions/workflows/ci.yml/badge.svg)](https://github.com/Aditya31398/aegis/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/aegis-guard)](https://pypi.org/project/aegis-guard/)
-[![Python](https://img.shields.io/pypi/pyversions/aegis-guard)](https://pypi.org/project/aegis-guard/)
+[![PyPI](https://img.shields.io/pypi/v/aegis-kernel)](https://pypi.org/project/aegis-kernel/)
+[![Python](https://img.shields.io/pypi/pyversions/aegis-kernel)](https://pypi.org/project/aegis-kernel/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 Aegis does two jobs:
@@ -18,7 +18,7 @@ Aegis does two jobs:
 ## Install
 
 ```bash
-pip install aegis-guard          # Python 3.10+, one dependency (PyYAML)
+pip install aegis-kernel          # Python 3.10+, one dependency (PyYAML)
 aegis --version
 ```
 
@@ -87,7 +87,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v7
-  - uses: Aditya31398/aegis@v0.3.0
+  - uses: Aditya31398/aegis@v0.4.0
     with:
       manifest: mcp-servers.json          # and/or  server: https://…/mcp
       baseline: aegis-baseline.yaml
@@ -149,8 +149,8 @@ Releases are built once in CI from a tag, published to PyPI through trusted
 publishing (no long-lived token exists), and carry signed build provenance:
 
 ```bash
-gh attestation verify aegis_guard-0.3.0-py3-none-any.whl --repo Aditya31398/aegis
-gh attestation verify oci://ghcr.io/aditya31398/aegis:0.3.0 --repo Aditya31398/aegis
+gh attestation verify aegis_kernel-0.4.0-py3-none-any.whl --repo Aditya31398/aegis
+gh attestation verify oci://ghcr.io/aditya31398/aegis:0.4.0 --repo Aditya31398/aegis
 ```
 
 The container runs as a non-root user and ships an SBOM. The kernel has one

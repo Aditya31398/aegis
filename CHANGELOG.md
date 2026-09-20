@@ -8,6 +8,18 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-20
+
+The first version intended to land on PyPI, under a new distribution name.
+
+### Changed
+- **Breaking (install name only):** the distribution is now **`aegis-kernel`**;
+  `pip install aegis-guard` will never work, because PyPI rejected that name as
+  too similar to the existing `aegisguard` project (PyPI compares names with
+  separators removed, so `aegis-guard` and `aegisguard` collide). The import
+  package and the CLI are unchanged: `import aegis`, `aegis --version`. Pin
+  `aegis-kernel==0.4.0` in CI; `aegis init --ci` scaffolds that already.
+
 ### Added
 - Every finding now carries a confidence (`confirmed`, `likely`, `possible`)
   graded by the evidence behind the check, in the text, Markdown, HTML, JSON
@@ -33,8 +45,9 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 
 ## [0.3.0] - 2026-09-20
 
-First release published to PyPI. 0.1.0 and 0.2.0 were tagged but never uploaded,
-so `pip install aegis-guard` works from this version on.
+Tagged and released on GitHub, but **not** published to PyPI: the distribution
+name it used was rejected there (see 0.4.0). 0.1.0 and 0.2.0 were likewise
+tagged but never uploaded.
 
 ### Added
 - **Observability hooks** (`aegis.observe`). `register_context_provider(fn)` stamps

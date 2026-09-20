@@ -52,7 +52,7 @@ def test_init_scaffolds_a_directory_that_passes_every_check(tmp_path, monkeypatc
 def test_init_workflow_pins_this_version(tmp_path):
     cli(["init", str(tmp_path), "--ci"])
     wf = (tmp_path / ".github/workflows/aegis.yml").read_text(encoding="utf-8")
-    assert f"aegis-guard=={__version__}" in wf
+    assert f"aegis-kernel=={__version__}" in wf
     assert "{version}" not in wf
     parsed = yaml.safe_load(wf)
     assert parsed["jobs"]["aegis"]["permissions"]["security-events"] == "write"

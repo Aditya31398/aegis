@@ -23,7 +23,7 @@ jobs:
 
       # Pin the exact version: a new release can add checks, and a new check
       # should arrive in a reviewed PR, not in an unrelated build.
-      - run: pip install "aegis-guard=={version}"
+      - run: pip install "aegis-kernel=={version}"
 
       - name: Ratify policy against the constitution
         run: aegis ratify --policy policies/base.yaml

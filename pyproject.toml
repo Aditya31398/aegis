@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aegis-guard"
+name = "aegis-kernel"
 dynamic = ["version"]
 description = "Capability-based constraint enforcement for AI agents, with a regression suite that hunts its own loopholes and an MCP server auditor."
 readme = "README.md"

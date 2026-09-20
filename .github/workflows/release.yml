@@ -69,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/aegis-guard/${{ needs.build.outputs.version }}/
+      url: https://pypi.org/project/aegis-kernel/${{ needs.build.outputs.version }}/
     permissions:
       id-token: write
     steps:
