@@ -9,6 +9,10 @@
 # the reason written down. Anything NOT in this file fails CI at high severity
 # or above. So the known-hole set can shrink silently but never grow silently.
 #
+# Fingerprints for payload findings identify the (tool, argument) pair, not a
+# payload string, so refreshing the corpus in aegis/corpus/ cannot invalidate
+# an entry here.
+#
 # Every entry needs a reason and an owner. "It's noisy" is not a reason.
 
 version: 1
@@ -33,7 +37,7 @@ accepted:
       further would make ordinary research workers unable to cite sources.
     owner: platform
 
-  - fingerprint: 449965366b7c2a59
+  - fingerprint: becfea30a834e240
     finding: a path inside /workspace may be a symlink out of it
     reason: >
       Not decidable from the argument string. This must be enforced in the
@@ -41,7 +45,7 @@ accepted:
       sandbox root. Tracked as a tool-level requirement, not a policy one.
     owner: storage
 
-  - fingerprint: 0a73ba93b3424c40
+  - fingerprint: 34d42a97af9b1f85
     finding: natural-language obfuscated PII in fs.write content
     reason: >
       "asha [dot] rao [at] example [dot] com" defeats pattern matching, and
@@ -50,9 +54,9 @@ accepted:
       write it out, and one that did is tainted.
     owner: privacy
 
-  - fingerprint: 8df2c59b221eb9be
+  - fingerprint: dd05d8e71ad701a3
     finding: natural-language obfuscated PII in http.post body
-    reason: same class as 0a73ba93b3424c40; the taint ceiling is the control.
+    reason: same class as 34d42a97af9b1f85; the taint ceiling is the control.
     owner: privacy
 
   - fingerprint: 3e19934dbb367142

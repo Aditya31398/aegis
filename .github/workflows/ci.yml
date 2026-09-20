@@ -113,6 +113,7 @@ jobs:
           tops = {n.split("/")[0] for n in names if not n.split("/")[0].endswith(".dist-info")}
           assert tops == {"aegis"}, tops
           for need in ("aegis/constitution.yaml", "aegis/py.typed",
+                       "aegis/corpus/payloads.yaml",
                        "aegis/templates/policy.yaml", "aegis/templates/workflow.yml"):
               assert need in names, need
           print("ok:", len(names), "files")

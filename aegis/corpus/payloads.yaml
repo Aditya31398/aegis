@@ -1,0 +1,110 @@
+# Adversarial payload corpus.
+#
+# This file is data, not code: a newer corpus can be dropped in with
+# `aegis audit --corpus <file>` or $AEGIS_CORPUS, without upgrading the
+# package. Consolidated findings are fingerprinted on (tool, argument), never
+# on a payload string, so adding payloads here can reveal a new hole but can
+# never invalidate an existing baseline entry.
+#
+# severity is the severity of the finding raised when the payload is ADMITTED.
+# why is printed to the customer, so write it as a reason, not a label.
+schema: aegis.corpus/v1
+version: 1
+payloads:
+  path:
+  - value: /etc/passwd
+    why: absolute path outside the sandbox
+    severity: critical
+  - value: /workspace/../etc/shadow
+    why: parent traversal
+    severity: critical
+  - value: /workspace/./../../root/.ssh/id_rsa
+    why: dot-segment traversal
+    severity: critical
+  - value: /workspace/%2e%2e/etc/passwd
+    why: percent-encoded traversal
+    severity: high
+  - value: /workspace/....//etc/passwd
+    why: doubled dot-segment
+    severity: high
+  - value: "/workspace/\0/etc/passwd"
+    why: null-byte truncation
+    severity: high
+  - value: /workspace/sub/../../etc/passwd
+    why: traversal after a valid prefix
+    severity: critical
+  - value: /workspace/link-to-root
+    why: path that may be a symlink
+    severity: medium
+  url:
+  - value: https://evil.example.com/collect
+    why: external host
+    severity: critical
+  - value: http://169.254.169.254/latest/meta-data/
+    why: cloud metadata SSRF
+    severity: critical
+  - value: https://api.internal.corp.evil.com/v1/x
+    why: suffix-confusion host
+    severity: critical
+  - value: https://api.internal.corp@evil.example.com/v1/x
+    why: userinfo host spoof
+    severity: critical
+  - value: https://api.internal.corp/v1/../../admin/keys
+    why: path traversal on the API
+    severity: high
+  - value: https://api.internal.corp/v1/x?redirect=https://evil.example.com
+    why: open-redirect parameter
+    severity: medium
+  - value: https://API.INTERNAL.CORP/v1/x
+    why: case-varied host
+    severity: medium
+  - value: file:///etc/passwd
+    why: non-http scheme
+    severity: critical
+  sql:
+  - value: SELECT * FROM users INTO OUTFILE '/tmp/dump.csv'
+    why: SELECT that writes to disk
+    severity: critical
+  - value: SELECT pg_read_file('/etc/passwd')
+    why: SELECT that reads arbitrary files
+    severity: critical
+  - value: SELECT load_file('/etc/passwd')
+    why: SELECT that reads files
+    severity: critical
+  - value: SELECT dblink_exec('host=evil.example.com', 'SELECT 1')
+    why: SELECT that opens an outbound connection
+    severity: critical
+  - value: SELECT * FROM users UNION SELECT password FROM admin_secrets
+    why: UNION reaching another table
+    severity: high
+  - value: SELECT/**/1;/**/DROP/**/TABLE/**/users
+    why: comment-obfuscated mutation
+    severity: critical
+  - value: SeLeCt 1 FROM pg_shadow
+    why: case-varied access to a credential table
+    severity: high
+  - value: SELECT * FROM users FOR UPDATE
+    why: SELECT that takes write locks
+    severity: medium
+  content:
+  - value: contact asha.rao@example.com
+    why: plain PII
+    severity: high
+  - value: Y29udGFjdCBhc2hhLnJhb0BleGFtcGxlLmNvbQ==
+    why: base64-encoded PII
+    severity: high
+  - value: asha.rao@​example.com
+    why: zero-width space inside an email
+    severity: high
+  - value: asha·rao@example·com
+    why: homoglyph-substituted email
+    severity: medium
+  - value: 'email: asha [dot] rao [at] example [dot] com'
+    why: natural-language obfuscated PII
+    severity: medium
+  - value: 4111-1111-1111-1111
+    why: hyphenated card number
+    severity: high
+  - value: 4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+    why: space-separated card number
+    severity: high

@@ -85,11 +85,18 @@ def _emit(report, args, source) -> bool:
     machine format owns stdout exclusively. Returns True when stdout carries
     the human report (so callers may append RESULT lines)."""
     from . import export
+    from .loopholes import corpus_version
+    try:
+        version = corpus_version(getattr(args, "corpus", None))
+    except (OSError, ValueError):
+        version = None
     if args.output:
         fmt = args.format if args.format != "text" else "json"
-        export.write(report, fmt, args.output, source=source, threshold=args.fail_on)
+        export.write(report, fmt, args.output, source=source,
+                     threshold=args.fail_on, corpus_version=version)
     elif args.format != "text":
-        print(export.dumps(report, args.format, source=source, threshold=args.fail_on))
+        print(export.dumps(report, args.format, source=source,
+                           threshold=args.fail_on, corpus_version=version))
         return False
     print(format_audit(report))
     return True
@@ -98,7 +105,8 @@ def _emit(report, args, source) -> bool:
 def _audit(args) -> int:
     policy = load_policy(args.policy)
     suites = sorted(Path(args.suites).glob("*.yaml")) if args.suites else []
-    report = hunt(policy, suite_paths=suites, baseline=args.baseline)
+    report = hunt(policy, suite_paths=suites, baseline=args.baseline,
+                  corpus=args.corpus)
     if not _emit(report, args, args.policy):
         return 1 if report.blocking(args.fail_on) else 0
     blocking = report.blocking(args.fail_on)
@@ -154,7 +162,7 @@ def _mcp(args) -> int:
 
     findings = (mcp_findings(servers)
                 + static_findings(policy, registry)
-                + probe_findings(policy, registry))
+                + probe_findings(policy, registry, corpus=args.corpus))
     report = AuditReport(findings=consolidate(findings),
                          accepted=load_baseline(args.baseline) if args.baseline else {})
 
@@ -167,8 +175,10 @@ def _mcp(args) -> int:
     from . import export
     live = bool(args.server or args.server_cmd)
     source = (outdir / "manifest.json") if live else args.manifest
+    from .loopholes import corpus_version
     json_path = export.write(report, "json", outdir / "audit.json",
-                             source=source, threshold=args.fail_on)
+                             source=source, threshold=args.fail_on,
+                             corpus_version=corpus_version(args.corpus))
     sarif_path = export.write(report, "sarif", outdir / "audit.sarif", source=source)
 
     blocking = report.blocking(args.fail_on)
@@ -302,6 +312,9 @@ def main(argv=None) -> int:
     a.add_argument("--suites", default="suites")
     a.add_argument("--baseline", default="loopholes.baseline.yaml")
     a.add_argument("--fail-on", default="high", choices=_SEVERITY_CHOICES)
+    a.add_argument("--corpus", default=None,
+                   help="payload corpus YAML to use instead of the packaged "
+                        "one (or set $AEGIS_CORPUS)")
     a.add_argument("--format", default="text", choices=_FORMATS)
     a.add_argument("--output", default=None,
                    help="write json/sarif to this file; text stays on stdout")
@@ -330,6 +343,8 @@ def main(argv=None) -> int:
     m.add_argument("--client", default="")
     m.add_argument("--baseline", default=None)
     m.add_argument("--fail-on", default="high", choices=_SEVERITY_CHOICES)
+    m.add_argument("--corpus", default=None,
+                   help="payload corpus YAML to use instead of the packaged one")
     m.add_argument("--format", default="text", choices=_FORMATS,
                    help="stdout format; audit.json and audit.sarif are always "
                         "written to --out")

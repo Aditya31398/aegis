@@ -270,6 +270,30 @@ not merely "an error was returned".
       rule: capability.arg_prefix
 ```
 
+### The payload corpus is data
+
+The payloads the probe engine pushes through the guard chain live in
+`aegis/corpus/payloads.yaml` (`schema: aegis.corpus/v1`, with a `version`),
+not in the code. A newer corpus drops in without upgrading the package:
+
+```
+aegis audit --policy policies/base.yaml --corpus corpus-2026-09.yaml
+AEGIS_CORPUS=corpus-2026-09.yaml aegis mcp --manifest servers.json --out out
+```
+
+Which corpus produced a run is recorded in `audit.json` under
+`tool.corpus_version`. A corpus that fails validation is a usage error (exit
+`2`), never a quiet pass with fewer probes — a silently-skipped payload looks
+exactly like a clean audit.
+
+The property that makes refreshes safe: a payload finding is fingerprinted on
+the **(tool, argument) pair it reached**, not on the payload string that
+happened to arrive first. So adding payloads can reveal a new hole, and can
+never invalidate an accepted entry in someone's baseline.
+`test_adding_payloads_never_changes_existing_fingerprints` inserts a payload at
+the front of every kind — the worst case for witness selection — and asserts
+every prior fingerprint survives.
+
 ### 2. Invariants under fuzz (`aegis/conformance/invariants.py`)
 
 A random workload generator drives the kernel with thousands of arbitrary

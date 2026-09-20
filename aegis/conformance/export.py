@@ -33,14 +33,16 @@ _LEVEL = {"critical": "error", "high": "error", "medium": "warning",
 
 
 def to_json(report: AuditReport, *, source: str | Path | None = None,
-            threshold: str = "high") -> dict[str, Any]:
+            threshold: str = "high", corpus_version: int | None = None
+            ) -> dict[str, Any]:
     blocking = {f.fingerprint for f in report.blocking(threshold)}
     counts = {s: 0 for s in SEVERITIES}
     for f in report.findings:
         counts[f.severity] += 1
     return {
         "schema": JSON_SCHEMA,
-        "tool": {"name": "aegis", "version": __version__},
+        "tool": {"name": "aegis", "version": __version__,
+                 **({"corpus_version": corpus_version} if corpus_version else {})},
         "source": str(source) if source else None,
         "fail_on": threshold,
         "passed": not blocking,
@@ -115,18 +117,22 @@ def to_sarif(report: AuditReport, *, source: str | Path | None = None
 
 
 def write(report: AuditReport, fmt: str, path: str | Path, *,
-          source: str | Path | None = None, threshold: str = "high") -> Path:
+          source: str | Path | None = None, threshold: str = "high",
+          corpus_version: int | None = None) -> Path:
     doc = (to_sarif(report, source=source) if fmt == "sarif"
-           else to_json(report, source=source, threshold=threshold))
+           else to_json(report, source=source, threshold=threshold,
+                        corpus_version=corpus_version))
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
     return path
 
 
-def dumps(report: AuditReport, fmt: str, *, source=None, threshold="high") -> str:
+def dumps(report: AuditReport, fmt: str, *, source=None, threshold="high",
+          corpus_version: int | None = None) -> str:
     doc = (to_sarif(report, source=source) if fmt == "sarif"
-           else to_json(report, source=source, threshold=threshold))
+           else to_json(report, source=source, threshold=threshold,
+                        corpus_version=corpus_version))
     return json.dumps(doc, indent=2)
 
 

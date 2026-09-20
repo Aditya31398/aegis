@@ -24,8 +24,10 @@ never grow silently.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass, field
+from importlib import resources
 from pathlib import Path
 from typing import Iterable
 
@@ -53,10 +55,16 @@ class Finding:
     tool: str = ""
     arg: str = ""
     witness: str = ""
+    # Overrides what the fingerprint is computed from. Set it when the witness
+    # is drawn from the payload corpus: a fingerprint that moves when the
+    # corpus is updated would invalidate every customer's baseline on a data
+    # refresh, which is exactly what the corpus being data is meant to avoid.
+    key: str = ""
 
     @property
     def fingerprint(self) -> str:
-        key = f"{self.category}|{self.tool}|{self.arg}|{self.title}|{self.witness}"
+        key = self.key or (
+            f"{self.category}|{self.tool}|{self.arg}|{self.title}|{self.witness}")
         return hashlib.sha256(key.encode()).hexdigest()[:16]
 
     def __str__(self) -> str:
@@ -213,56 +221,72 @@ class Payload:
     severity: str = "high"
 
 
-_PAYLOADS: dict[str, tuple[Payload, ...]] = {
-    "path": (
-        Payload("/etc/passwd", "absolute path outside the sandbox", "critical"),
-        Payload("/workspace/../etc/shadow", "parent traversal", "critical"),
-        Payload("/workspace/./../../root/.ssh/id_rsa", "dot-segment traversal", "critical"),
-        Payload("/workspace/%2e%2e/etc/passwd", "percent-encoded traversal", "high"),
-        Payload("/workspace/....//etc/passwd", "doubled dot-segment", "high"),
-        Payload("/workspace/\x00/etc/passwd", "null-byte truncation", "high"),
-        Payload("/workspace/sub/../../etc/passwd", "traversal after a valid prefix", "critical"),
-        Payload("/workspace/link-to-root", "path that may be a symlink", "medium"),
-    ),
-    "url": (
-        Payload("https://evil.example.com/collect", "external host", "critical"),
-        Payload("http://169.254.169.254/latest/meta-data/", "cloud metadata SSRF", "critical"),
-        Payload("https://api.internal.corp.evil.com/v1/x", "suffix-confusion host", "critical"),
-        Payload("https://api.internal.corp@evil.example.com/v1/x", "userinfo host spoof", "critical"),
-        Payload("https://api.internal.corp/v1/../../admin/keys", "path traversal on the API", "high"),
-        Payload("https://api.internal.corp/v1/x?redirect=https://evil.example.com",
-                "open-redirect parameter", "medium"),
-        Payload("https://API.INTERNAL.CORP/v1/x", "case-varied host", "medium"),
-        Payload("file:///etc/passwd", "non-http scheme", "critical"),
-    ),
-    "sql": (
-        Payload("SELECT * FROM users INTO OUTFILE '/tmp/dump.csv'",
-                "SELECT that writes to disk", "critical"),
-        Payload("SELECT pg_read_file('/etc/passwd')",
-                "SELECT that reads arbitrary files", "critical"),
-        Payload("SELECT load_file('/etc/passwd')", "SELECT that reads files", "critical"),
-        Payload("SELECT dblink_exec('host=evil.example.com', 'SELECT 1')",
-                "SELECT that opens an outbound connection", "critical"),
-        Payload("SELECT * FROM users UNION SELECT password FROM admin_secrets",
-                "UNION reaching another table", "high"),
-        Payload("SELECT/**/1;/**/DROP/**/TABLE/**/users",
-                "comment-obfuscated mutation", "critical"),
-        Payload("SeLeCt 1 FROM pg_shadow", "case-varied access to a credential table", "high"),
-        Payload("SELECT * FROM users FOR UPDATE", "SELECT that takes write locks", "medium"),
-    ),
-    "content": (
-        Payload("contact asha.rao@example.com", "plain PII", "high"),
-        Payload("Y29udGFjdCBhc2hhLnJhb0BleGFtcGxlLmNvbQ==",
-                "base64-encoded PII", "high"),
-        Payload("asha.rao@ example.com".replace(" ", "\u200b"),
-                "zero-width space inside an email", "high"),
-        Payload("asha·rao@example·com", "homoglyph-substituted email", "medium"),
-        Payload("email: asha [dot] rao [at] example [dot] com",
-                "natural-language obfuscated PII", "medium"),
-        Payload("4111-1111-1111-1111", "hyphenated card number", "high"),
-        Payload("4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1", "space-separated card number", "high"),
-    ),
-}
+CORPUS_SCHEMA = "aegis.corpus/v1"
+_DEFAULT_CORPUS = "payloads.yaml"
+
+
+class CorpusError(ValueError):
+    """A corpus file that cannot be trusted to mean what it says."""
+
+
+def load_payload_corpus(source: str | Path | None = None
+                        ) -> dict[str, tuple[Payload, ...]]:
+    """Load the adversarial payload corpus.
+
+    The corpus is the part of this project most likely to change between
+    releases, and the part a customer would most want to update on its own
+    cadence. So it is data: `--corpus <file>` or $AEGIS_CORPUS replaces the
+    packaged one without touching the installed package.
+
+    Validation is strict on purpose. A silently-dropped payload is a probe
+    that never runs, which looks exactly like a clean audit.
+    """
+    source = source or os.environ.get("AEGIS_CORPUS")
+    if source:
+        text = Path(source).read_text(encoding="utf-8")
+        where = str(source)
+    else:
+        text = (resources.files("aegis") / "corpus" / _DEFAULT_CORPUS).read_text(
+            encoding="utf-8")
+        where = f"<packaged {_DEFAULT_CORPUS}>"
+
+    try:
+        raw = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise CorpusError(f"{where}: not valid YAML: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise CorpusError(f"{where}: corpus must be a mapping")
+    if raw.get("schema") != CORPUS_SCHEMA:
+        raise CorpusError(f"{where}: schema is {raw.get('schema')!r}, "
+                          f"expected {CORPUS_SCHEMA!r}")
+    payloads = raw.get("payloads")
+    if not isinstance(payloads, dict) or not payloads:
+        raise CorpusError(f"{where}: no payloads")
+
+    out: dict[str, tuple[Payload, ...]] = {}
+    for kind, entries in payloads.items():
+        if not isinstance(entries, list) or not entries:
+            raise CorpusError(f"{where}: '{kind}' must be a non-empty list")
+        built = []
+        for i, e in enumerate(entries):
+            if not isinstance(e, dict) or "value" not in e or "why" not in e:
+                raise CorpusError(f"{where}: {kind}[{i}] needs 'value' and 'why'")
+            severity = e.get("severity", "high")
+            if severity not in SEVERITIES:
+                raise CorpusError(f"{where}: {kind}[{i}] severity {severity!r} "
+                                  f"is not one of {list(SEVERITIES)}")
+            built.append(Payload(str(e["value"]), str(e["why"]), severity))
+        out[str(kind)] = tuple(built)
+    return out
+
+
+def corpus_version(source: str | Path | None = None) -> int:
+    source = source or os.environ.get("AEGIS_CORPUS")
+    text = (Path(source).read_text(encoding="utf-8") if source else
+            (resources.files("aegis") / "corpus" / _DEFAULT_CORPUS).read_text(
+                encoding="utf-8"))
+    return int((yaml.safe_load(text) or {}).get("version", 0))
+
 
 _ARG_KIND = (
     ("path", ("path", "file", "filename", "dir", "dest")),
@@ -342,7 +366,11 @@ def _benign_args(rule: ToolRule) -> dict[str, str]:
     return args
 
 
-def probe_findings(policy: Policy, registry: ToolRegistry) -> list[Finding]:
+def probe_findings(policy: Policy, registry: ToolRegistry, *,
+                   corpus: dict[str, tuple[Payload, ...]] | str | Path | None = None
+                   ) -> list[Finding]:
+    if corpus is None or isinstance(corpus, (str, Path)):
+        corpus = load_payload_corpus(corpus)
     kernel = Kernel(registry, dry_run=True)
     out: list[Finding] = []
 
@@ -360,7 +388,7 @@ def probe_findings(policy: Policy, registry: ToolRegistry) -> list[Finding]:
 
         for arg in sorted(base):
             kind = _kind_of(arg)
-            for payload in _PAYLOADS.get(kind, ()):
+            for payload in corpus.get(kind, ()):
                 args = dict(base)
                 args[arg] = payload.value
                 grant = Grant.root(policy, "probe")   # fresh, untainted
@@ -463,10 +491,11 @@ def load_baseline(path: str | Path) -> dict[str, str]:
 
 def hunt(policy: Policy, registry: ToolRegistry | None = None, *,
          suite_paths: Iterable[str | Path] = (),
-         baseline: str | Path | None = None) -> AuditReport:
+         baseline: str | Path | None = None,
+         corpus: str | Path | None = None) -> AuditReport:
     registry = registry or build_fixture_registry(policy)[0]
     findings = static_findings(policy, registry)
-    findings += probe_findings(policy, registry)
+    findings += probe_findings(policy, registry, corpus=corpus)
 
     steps: list[Step] = []
     for sp in suite_paths:
@@ -524,7 +553,10 @@ def consolidate(findings: list[Finding]) -> list[Finding]:
             detail += ". Also reproduces with: " + ", ".join(repr(w) for w in extra)
         merged.append(Finding(
             "payload_admitted", worst.severity, "dangerous payloads accepted",
-            detail, tool=tool, arg=arg, witness=worst.witness))
+            detail, tool=tool, arg=arg, witness=worst.witness,
+            # Identity is the unconstrained argument, not the payload that
+            # happened to reach it first.
+            key=f"payload_admitted|{tool}|{arg}"))
 
     out = passthrough + merged
     out.sort(key=lambda f: (SEVERITIES.index(f.severity), f.category, f.tool, f.arg))

@@ -23,7 +23,7 @@ which is what makes the tooling usable as a service.
 pip install -e ".[dev]"
 
 ruff check .
-pytest -q                                                    # 229 tests, all must pass
+pytest -q                                                    # 244 tests, all must pass
 aegis ratify  --policy policies/base.yaml
 aegis verify  --suites suites --policy policies/base.yaml --require-coverage
 aegis fuzz    --policy policies/base.yaml --iterations 20
@@ -73,7 +73,12 @@ failing, the fix is the code, not the test.
 8. **The wheel must work outside the repo.** Anything read at runtime lives
    under `aegis/` and is listed in `package-data`. The `package` CI job
    installs the wheel into a clean venv and runs from another directory.
-9. **Constitutional clauses have no waiver.** If a clause is inconvenient, the
+9. **Fingerprints must not move when the corpus does.** A payload finding's
+   identity is the (tool, argument) pair it reached, set via `Finding.key` —
+   never the payload string that happened to arrive first. A corpus refresh
+   that renumbered every customer's baseline would make the baseline useless,
+   and the corpus is meant to be updated without a release.
+10. **Constitutional clauses have no waiver.** If a clause is inconvenient, the
    fix is to amend `aegis/constitution.yaml` in a visible diff, never to add a
    bypass flag.
 
@@ -109,6 +114,7 @@ aegis/
   adapters/mcp_client.py  live handshake (HTTP/stdio), listing-only
   constitution.yaml   shipped in the wheel
   templates/      what `aegis init` scaffolds; must equal the repo copies
+  corpus/         the adversarial payload corpus: DATA, versioned, swappable
 aegis/conformance/
   cli.py          the `aegis` command; exit codes defined here
   export.py       JSON (aegis.audit/v1) and SARIF 2.1.0

@@ -9,6 +9,11 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 ## [Unreleased]
 
 ### Added
+- The adversarial payload corpus is now versioned data
+  (`aegis/corpus/payloads.yaml`, `schema: aegis.corpus/v1`) and can be replaced
+  with `--corpus` or `$AEGIS_CORPUS` without upgrading the package. The corpus
+  version used for a run appears in `audit.json` under `tool.corpus_version`.
+  An invalid corpus is a usage error (exit 2), never a quieter audit.
 - `aegis mcp` also writes `audit-report.html`: the same report as one
   self-contained file with no scripts or remote loads, everything escaped
   under a restrictive CSP.
@@ -41,6 +46,13 @@ so `pip install aegis-guard` works from this version on.
   spend that already happened (it cannot be refused, so overruns are never hidden).
 - `dump_policy(policy)` (round-trips through `parse_policy`) and
   `policy_digest(policy)`, a stable content fingerprint.
+
+### Changed
+- **Breaking (fingerprints):** a consolidated `payload_admitted` finding is now
+  fingerprinted on the (tool, argument) pair rather than on its witness string,
+  so refreshing the corpus cannot renumber a baseline. Entries accepted before
+  this release must be re-pinned once; `loopholes.baseline.yaml` in this repo
+  already is, and a stale entry fails the test suite rather than hiding.
 
 ### Fixed
 - `Kernel(audit=AuditLog(path=...))` silently discarded the caller's log: an empty

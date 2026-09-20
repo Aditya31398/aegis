@@ -50,7 +50,7 @@ version = { attr = "aegis.__version__" }
 include = ["aegis*"]
 
 [tool.setuptools.package-data]
-aegis = ["py.typed", "*.yaml", "templates/*"]
+aegis = ["py.typed", "*.yaml", "templates/*", "corpus/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

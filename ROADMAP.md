@@ -23,10 +23,10 @@ Ordered by whether it unblocks a user, not by how interesting it is.
 
 ## Soon
 
-- [ ] **Payload corpus as a versioned data file.** Move `_PAYLOADS` out of
-      `loopholes.py` into `corpus/*.yaml` with a schema and a version field.
-      This is the thing that would eventually be subscribed to, so it needs to
-      be updatable without a code release.
+- [x] **Payload corpus as a versioned data file.** `aegis/corpus/payloads.yaml`
+      (`schema: aegis.corpus/v1`), swappable with `--corpus` or `$AEGIS_CORPUS`.
+      Payload findings are fingerprinted on the (tool, argument) pair, so a
+      corpus refresh can reveal a hole but never invalidates a baseline.
 - [ ] **Per-finding confidence score.** Severity answers "how bad"; it does not
       answer "how sure". A low-confidence finding should be reported
       differently, not suppressed.
