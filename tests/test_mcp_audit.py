@@ -11,7 +11,7 @@ from aegis.adapters.mcp import (McpServer, McpTool, build_registry, harden,
                                 load_servers, synthesize_policy, write_hardened)
 from aegis.decision import Effect
 from aegis.policy import load_policy
-from aegis.conformance.loopholes import (AuditReport, consolidate, probe_findings,
+from aegis.conformance.loopholes import (AuditReport, Finding, consolidate, probe_findings,
                                    sample_from_pattern, static_findings)
 from aegis.conformance.mcp_checks import mcp_findings
 from aegis.conformance.report import render_markdown
@@ -300,3 +300,54 @@ def test_inference_sources_are_recorded_for_every_sample_tool(servers):
             assert inf.effects
             # Either we can say why, or we fell back to the READ default.
             assert inf.sources or inf.effects == frozenset({Effect.READ})
+
+
+# ======================================================================
+# HTML report
+# ======================================================================
+def test_html_report_is_self_contained_and_complete(servers, audit):
+    from aegis.conformance.report_html import render_html
+    html = render_html(audit, servers, client="Acme", hardened_path="hardened-policy.yaml")
+    assert html.startswith("<!doctype html>") and html.rstrip().endswith("</html>")
+    # No live external references: it must render identically from a mail
+    # attachment, offline. (Witness strings legitimately contain URLs as
+    # escaped text, so the check is for markup that *fetches*, not for text.)
+    low = html.lower()
+    for markup in ("<script", "<iframe", "<img", "<link", " src=", " href=",
+                   "@import", "url("):
+        assert markup not in low, markup
+    assert "Content-Security-Policy" in html
+    for f in audit.findings:                       # every finding is present
+        assert f.fingerprint in html
+    assert "Acme" in html and "hardened-policy.yaml" in html
+
+
+def test_html_report_escapes_hostile_content(tmp_path):
+    """Witnesses and descriptions come from a manifest we did not write, and a
+    witness is an attacker-shaped string by construction. The report must not
+    become the payload's delivery vehicle for the reviewer who opens it."""
+    from aegis.conformance.report_html import render_html
+    payload = '</pre><script>alert("xss")</script><img src=x onerror=alert(1)>'
+    server = McpServer(name=f"srv{payload}", tools=(McpTool(
+        name=f"tool{payload}", description=payload,
+        input_schema={"properties": {"path": {"type": "string"}}}),))
+    findings = mcp_findings([server])
+    html = render_html(AuditReport(findings=findings + [Finding(
+        "payload_admitted", "critical", payload, payload,
+        tool="t", arg="a", witness=payload)]), [server])
+    # No raw markup may survive. The payload text still appears, escaped:
+    # a reviewer must be able to read the attack, not run it.
+    for raw in ("<script", "<img", "</pre><", "<svg", "<iframe"):
+        assert raw not in html, raw
+    assert "&lt;script&gt;" in html
+    assert payload not in html
+
+
+def test_html_report_shows_accepted_findings_with_their_reason(servers, audit):
+    from aegis.conformance.report_html import render_html
+    fp = audit.findings[0].fingerprint
+    accepted = AuditReport(findings=audit.findings,
+                           accepted={fp: "owned by platform, fixed in Q3"})
+    html = render_html(accepted, servers)
+    assert "owned by platform, fixed in Q3" in html
+    assert "accepted" in html

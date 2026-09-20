@@ -23,7 +23,7 @@ which is what makes the tooling usable as a service.
 pip install -e ".[dev]"
 
 ruff check .
-pytest -q                                                    # 213 tests, all must pass
+pytest -q                                                    # 229 tests, all must pass
 aegis ratify  --policy policies/base.yaml
 aegis verify  --suites suites --policy policies/base.yaml --require-coverage
 aegis fuzz    --policy policies/base.yaml --iterations 20
@@ -118,7 +118,9 @@ aegis/conformance/
   drift.py        privilege-widening detector
   loopholes.py    static + payload probe + metamorphic mutation
   mcp_checks.py   omnibus, shadowing, description injection, secrets
-  report.py       the client-facing deliverable
+  report.py       the client-facing deliverable (Markdown)
+  report_html.py  same content, one self-contained file; the ONLY place
+                  untrusted text becomes markup -- escape everything
 ```
 
 ## Known-weak areas, ranked

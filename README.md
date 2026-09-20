@@ -565,6 +565,15 @@ survived hardening.
 finding with where, what, a reproducing input and a fix, then a prioritised
 top-five.
 
+`audit-out/audit-report.html` — the same content as one self-contained file:
+no scripts, no remote fonts, no build step. It opens from a mail attachment or
+a shared drive, which is what the person approving the work actually does.
+Every value in it is escaped and the page declares a restrictive CSP, because a
+witness string is an attacker-shaped input by construction and the reviewer
+must be able to read the attack without running it.
+
+`audit-out/audit.json` and `audit-out/audit.sarif` — the machine-readable pair.
+
 `audit-out/hardened-policy.yaml` — an adoptable policy. Placeholders are
 shouted in capitals on purpose; a generated policy that looks finished is more
 dangerous than one that obviously needs a human.

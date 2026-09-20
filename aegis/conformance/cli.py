@@ -136,6 +136,7 @@ def _mcp(args) -> int:
     from .loopholes import load_baseline, probe_findings, static_findings
     from .mcp_checks import mcp_findings
     from .report import write_report
+    from .report_html import write_html
 
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -160,6 +161,8 @@ def _mcp(args) -> int:
     hardened = write_hardened(servers, outdir / "hardened-policy.yaml")
     written = write_report(report, servers, outdir / "audit-report.md",
                            client=args.client, hardened_path=hardened.name)
+    html_path = write_html(report, servers, outdir / "audit-report.html",
+                           client=args.client, hardened_path=hardened.name)
 
     from . import export
     live = bool(args.server or args.server_cmd)
@@ -172,6 +175,7 @@ def _mcp(args) -> int:
     if not _emit(report, args, source):
         return 1 if blocking else 0
     print(f"\nreport:   {written}")
+    print(f"html:     {html_path}")
     print(f"hardened: {hardened}")
     print(f"json:     {json_path}")
     print(f"sarif:    {sarif_path}")

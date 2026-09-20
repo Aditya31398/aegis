@@ -18,9 +18,8 @@ Ordered by whether it unblocks a user, not by how interesting it is.
       MCP annotations, then name keywords, with the deciding signal recorded in
       `EffectInference.sources`. Annotations may only widen; a narrowing claim
       becomes an `annotation_contradicts_surface` finding.
-- [ ] **HTML report.** Same content as the Markdown, styled, single file.
-      Markdown is fine for engineers; the person who approves the invoice
-      wants something that opens in a browser.
+- [x] **HTML report.** `audit-out/audit-report.html`: one self-contained file,
+      no scripts or remote loads, everything escaped under a restrictive CSP.
 
 ## Soon
 

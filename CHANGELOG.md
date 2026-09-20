@@ -9,6 +9,9 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 ## [Unreleased]
 
 ### Added
+- `aegis mcp` also writes `audit-report.html`: the same report as one
+  self-contained file with no scripts or remote loads, everything escaped
+  under a restrictive CSP.
 - Effect inference reads the JSON Schema shape (path+content, url+body,
   command, confirmation flags) and MCP annotations before falling back to tool
   names; `infer_effects_detailed` returns the deciding signals.
