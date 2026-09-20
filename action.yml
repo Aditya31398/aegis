@@ -86,7 +86,7 @@ runs:
         python-version: "3.12"
 
     # Install the code at the exact ref this action was pinned to, so
-    # `uses: Aditya31398/aegis@v0.2.0` always runs v0.2.0's checks.
+    # `uses: Aditya31398/aegis@v0.3.0` always runs v0.3.0's checks.
     - name: Install aegis
       shell: bash
       run: pip install --quiet "${{ github.action_path }}"

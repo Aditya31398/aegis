@@ -9,7 +9,7 @@ from .policy import Policy, PolicyError, dump_policy, load_policy, parse_policy,
 from .registry import ToolRegistry, ToolSpec
 from .runtime import Agent, AsyncToolbox, AsyncToolProxy, Toolbox, ToolProxy
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "Agent", "AsyncToolbox", "AsyncToolProxy", "AuditLog", "AuditRecord", "Budget", "BudgetLedger",

@@ -87,7 +87,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v7
-  - uses: Aditya31398/aegis@v0.2.0
+  - uses: Aditya31398/aegis@v0.3.0
     with:
       manifest: mcp-servers.json          # and/or  server: https://…/mcp
       baseline: aegis-baseline.yaml
@@ -149,8 +149,8 @@ Releases are built once in CI from a tag, published to PyPI through trusted
 publishing (no long-lived token exists), and carry signed build provenance:
 
 ```bash
-gh attestation verify aegis_guard-0.2.0-py3-none-any.whl --repo Aditya31398/aegis
-gh attestation verify oci://ghcr.io/aditya31398/aegis:0.2.0 --repo Aditya31398/aegis
+gh attestation verify aegis_guard-0.3.0-py3-none-any.whl --repo Aditya31398/aegis
+gh attestation verify oci://ghcr.io/aditya31398/aegis:0.3.0 --repo Aditya31398/aegis
 ```
 
 The container runs as a non-root user and ships an SBOM. The kernel has one

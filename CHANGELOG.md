@@ -8,6 +8,11 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-20
+
+First release published to PyPI. 0.1.0 and 0.2.0 were tagged but never uploaded,
+so `pip install aegis-guard` works from this version on.
+
 ### Added
 - **Observability hooks** (`aegis.observe`). `register_context_provider(fn)` stamps
   correlation ids (run id, trace id, workflow, node) into every audit record under
@@ -33,8 +38,8 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 ## [0.2.0] - 2026-09-19
 
 ### Added
-- **Installable package.** `pip install aegis-guard` provides the `aegis`
-  command and `python -m aegis`. Typed (`py.typed`).
+- **Installable package.** Provides the `aegis` command and `python -m aegis`.
+  Typed (`py.typed`). (Not uploaded to PyPI; see 0.3.0.)
 - `aegis init [--ci]` scaffolds a policy, adversarial scenarios, a loophole
   baseline and a GitHub workflow that pass every check out of the box.
 - `--format json|sarif` and `--output` on `audit` and `mcp`. SARIF 2.1.0 with
