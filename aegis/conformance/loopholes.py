@@ -77,6 +77,8 @@ _CONFIDENCE: dict[str, str] = {
     "dead_rule": "confirmed",
     "phantom_grant": "confirmed",
     "probe_skipped": "confirmed",
+    "hosted_tool_unbounded": "confirmed",
+    "provider_validation_off": "confirmed",
     # a fact plus an inference that can be wrong
     "unscreened_exit": "likely",          # rests on inferred effects
     "annotation_contradicts_surface": "likely",

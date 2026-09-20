@@ -142,28 +142,22 @@ def _ratify(args) -> int:
     return 1
 
 
-def _mcp(args) -> int:
-    from aegis.adapters.mcp import (build_registry, synthesize_policy, write_hardened)
-    from .loopholes import load_baseline, probe_findings, static_findings
-    from .mcp_checks import mcp_findings
+def _audit_surface(servers, args, source, *, extra_findings=()) -> int:
+    """The shared pipeline: synthesize a policy from a declared tool surface,
+    hunt it, and write every deliverable. `mcp` and `tools` differ only in how
+    the surface was obtained and which surface-specific checks apply."""
+    from aegis.adapters.mcp import build_registry, synthesize_policy, write_hardened
+    from . import export
+    from .loopholes import (corpus_version, load_baseline, probe_findings,
+                            static_findings)
     from .report import write_report
     from .report_html import write_html
 
     outdir = Path(args.out)
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        servers = _mcp_servers(args, outdir)
-    except (ValueError, OSError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    if not any(s.tools for s in servers):
-        print("error: no tools discovered; nothing to audit", file=sys.stderr)
-        return 2
     policy = synthesize_policy(servers)
     registry = build_registry(servers)
 
-    findings = (mcp_findings(servers)
+    findings = (list(extra_findings)
                 + static_findings(policy, registry)
                 + probe_findings(policy, registry, corpus=args.corpus))
     report = AuditReport(findings=consolidate(findings),
@@ -174,14 +168,10 @@ def _mcp(args) -> int:
                            client=args.client, hardened_path=hardened.name)
     html_path = write_html(report, servers, outdir / "audit-report.html",
                            client=args.client, hardened_path=hardened.name)
-
-    from . import export
-    live = bool(args.server or args.server_cmd)
-    source = (outdir / "manifest.json") if live else args.manifest
-    from .loopholes import corpus_version
     json_path = export.write(report, "json", outdir / "audit.json",
                              source=source, threshold=args.fail_on,
-                             corpus_version=corpus_version(args.corpus))
+                             corpus_version=corpus_version(args.corpus),
+                             min_confidence=args.min_confidence)
     sarif_path = export.write(report, "sarif", outdir / "audit.sarif", source=source)
 
     blocking = report.blocking(args.fail_on, args.min_confidence)
@@ -198,6 +188,51 @@ def _mcp(args) -> int:
         return 1
     print("\nRESULT: PASS")
     return 0
+
+
+def _mcp(args) -> int:
+    from .mcp_checks import mcp_findings
+
+    outdir = Path(args.out)
+    outdir.mkdir(parents=True, exist_ok=True)
+    try:
+        servers = _mcp_servers(args, outdir)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not any(s.tools for s in servers):
+        print("error: no tools discovered; nothing to audit", file=sys.stderr)
+        return 2
+
+    live = bool(args.server or args.server_cmd)
+    source = (outdir / "manifest.json") if live else args.manifest
+    return _audit_surface(servers, args, source,
+                          extra_findings=mcp_findings(servers))
+
+
+def _tools(args) -> int:
+    """Audit an OpenAI / Anthropic / LangChain tool declaration."""
+    from aegis.adapters.toolspec import ToolSpecError, load_tool_surface
+    from .mcp_checks import mcp_findings
+    from .provider_checks import provider_findings
+
+    outdir = Path(args.out)
+    outdir.mkdir(parents=True, exist_ok=True)
+    servers = []
+    try:
+        for i, path in enumerate(args.schema):
+            name = args.name if (args.name and len(args.schema) == 1) else None
+            servers += load_tool_surface(path, name=name)
+    except (ToolSpecError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    # The MCP checks are not MCP-specific in substance -- omnibus handlers,
+    # name shadowing, prompt injection in descriptions, irreversible tools
+    # with no brake -- so they apply here too.
+    return _audit_surface(servers, args, args.schema[0],
+                          extra_findings=mcp_findings(servers)
+                          + provider_findings(servers))
 
 
 def _mcp_servers(args, outdir: Path):
@@ -360,6 +395,22 @@ def main(argv=None) -> int:
                         "written to --out")
     m.add_argument("--output", default=None)
     m.set_defaults(handler=_mcp)
+
+    t = sub.add_parser("tools", help="audit an OpenAI / Anthropic / LangChain "
+                                     "tool declaration")
+    t.add_argument("--schema", action="append", required=True,
+                   help="JSON file of tool declarations (repeatable)")
+    t.add_argument("--name", default=None,
+                   help="name for the surface; defaults to the file name")
+    t.add_argument("--out", default="audit-out")
+    t.add_argument("--client", default="")
+    t.add_argument("--baseline", default=None)
+    t.add_argument("--fail-on", default="high", choices=_SEVERITY_CHOICES)
+    t.add_argument("--min-confidence", default="possible", choices=_CONFIDENCES)
+    t.add_argument("--corpus", default=None)
+    t.add_argument("--format", default="text", choices=_FORMATS)
+    t.add_argument("--output", default=None)
+    t.set_defaults(handler=_tools)
 
     args = p.parse_args(argv)
     try:

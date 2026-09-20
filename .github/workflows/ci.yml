@@ -191,6 +191,18 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e .
+      - name: Audit the sample OpenAI tool declaration
+        run: |
+          set +e
+          aegis tools --schema examples/sample_openai_tools.json --out tools-out --fail-on critical
+          code=$?
+          [ $code -le 1 ] || exit $code
+          python3 -c "
+          import json
+          cats = {f['category'] for f in json.load(open('tools-out/audit.json'))['findings']}
+          assert {'hosted_tool_unbounded', 'provider_validation_off'} <= cats, cats
+          print('tools audit categories ok')"
+
       - name: Audit the sample manifest
         run: |
           set +e
@@ -201,7 +213,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: sample-audit
-          path: audit-out/
+          path: |
+            audit-out/
+            tools-out/
 
   action:
     # Exercise action.yml itself, the way a consumer's workflow would.

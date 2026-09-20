@@ -23,7 +23,7 @@ which is what makes the tooling usable as a service.
 pip install -e ".[dev]"
 
 ruff check .
-pytest -q                                                    # 255 tests, all must pass
+pytest -q                                                    # 285 tests, all must pass
 aegis ratify  --policy policies/base.yaml
 aegis verify  --suites suites --policy policies/base.yaml --require-coverage
 aegis fuzz    --policy policies/base.yaml --iterations 20
@@ -32,6 +32,7 @@ aegis audit   --policy policies/base.yaml --baseline loopholes.baseline.yaml
 aegis drift   --baseline old.yaml --candidate policies/base.yaml
 aegis mcp     --manifest examples/sample_mcp_manifest.json --out audit-out
 aegis mcp     --server https://host/mcp --bearer-env MCP_TOKEN --out audit-out
+aegis tools   --schema examples/sample_openai_tools.json --out audit-out
 
 python examples/demo.py
 python examples/quickstart.py
@@ -119,6 +120,7 @@ aegis/
   observe.py      context providers + audit subscribers; may add correlation data, never change a verdict
   adapters/mcp.py ingest → synthesize → harden
   adapters/mcp_client.py  live handshake (HTTP/stdio), listing-only
+  adapters/toolspec.py    OpenAI / Anthropic / LangChain -> the same surface
   constitution.yaml   shipped in the wheel
   templates/      what `aegis init` scaffolds; must equal the repo copies
   corpus/         the adversarial payload corpus: DATA, versioned, swappable
@@ -131,6 +133,7 @@ aegis/conformance/
   drift.py        privilege-widening detector
   loopholes.py    static + payload probe + metamorphic mutation
   mcp_checks.py   omnibus, shadowing, description injection, secrets
+  provider_checks.py  hosted tools, provider-side validation (non-MCP surfaces)
   report.py       the client-facing deliverable (Markdown)
   report_html.py  same content, one self-contained file; the ONLY place
                   untrusted text becomes markup -- escape everything
@@ -144,7 +147,9 @@ Honest list. Do not paper over these.
    holds a sink, and the orchestration hands one's output to the other. The
    kernel cannot see that. Needs a mediated message bus. Accepted in the
    baseline as `54ef34904237b006`.
-2. **Effect inference still guesses.** Schema shape and annotations come
+2. **Effect inference still guesses.** (Adapters that *know* the effects, like
+   hosted provider tools, declare them via the `aegisEffects` annotation
+   instead of relying on keywords.) Schema shape and annotations come
    first now, but a tool with an opaque name, an opaque schema and no
    annotations falls back to keywords and then to READ. A wrong effect means
    a wrong severity. Never let an annotation *narrow* the inferred effects:

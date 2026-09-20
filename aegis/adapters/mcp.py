@@ -195,6 +195,12 @@ def _name_effects(tool: McpTool) -> list[tuple[Effect, str]]:
 # author: useful when they admit to more, worthless when they claim less.
 _ANNOTATION_EFFECTS = {"destructiveHint": Effect.WRITE, "openWorldHint": Effect.NETWORK}
 
+# An adapter that *knows* a tool's effects states them here rather than hoping
+# a keyword matches. Used for hosted provider tools (web_search, bash, computer
+# use), whose capabilities are defined by the provider, not by a schema we can
+# read. Like every other signal it may only widen the inferred set.
+_DECLARED_EFFECTS_KEY = "aegisEffects"
+
 
 def infer_effects_detailed(tool: McpTool) -> EffectInference:
     """Infer from the schema shape and the declared annotations, falling back
@@ -210,6 +216,11 @@ def infer_effects_detailed(tool: McpTool) -> EffectInference:
     for key, eff in _ANNOTATION_EFFECTS.items():
         if tool.annotations.get(key) is True:
             signals.append((eff, f"annotation:{key}"))
+    for declared in tool.annotations.get(_DECLARED_EFFECTS_KEY) or ():
+        try:
+            signals.append((Effect(declared), f"adapter:{declared}"))
+        except ValueError:
+            continue
 
     effects = {eff for eff, _ in signals}
     sources = tuple(dict.fromkeys(src for _, src in signals))

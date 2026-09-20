@@ -14,6 +14,12 @@ inputs:
     description: "Path to an MCP tools/list response, a client config, or a server bundle."
     required: false
     default: ""
+  schema:
+    description: >-
+      Path to an OpenAI / Anthropic / LangChain tool declaration (the tools=[...]
+      array). Audits that surface instead of an MCP server.
+    required: false
+    default: ""
   server:
     description: >-
       Streamable HTTP MCP endpoint to audit live (instead of, or as well as, a
@@ -108,15 +114,21 @@ runs:
         IN_OUT: ${{ inputs.out }}
         IN_FAIL_ON: ${{ inputs.fail-on }}
         IN_MIN_CONFIDENCE: ${{ inputs.min-confidence }}
+        IN_SCHEMA: ${{ inputs.schema }}
       run: |
         set +e
         args=(--out "$IN_OUT" --fail-on "$IN_FAIL_ON"
               --min-confidence "$IN_MIN_CONFIDENCE")
-        [ -n "$IN_MANIFEST" ] && args+=(--manifest "$IN_MANIFEST")
-        [ -n "$IN_SERVER" ]   && args+=(--server "$IN_SERVER")
-        [ -n "$IN_SERVER" ] && [ -n "$AEGIS_MCP_TOKEN" ] && args+=(--bearer-env AEGIS_MCP_TOKEN)
         [ -n "$IN_BASELINE" ] && args+=(--baseline "$IN_BASELINE")
-        aegis mcp "${args[@]}"
+        if [ -n "$IN_SCHEMA" ]; then
+          # A declared tool surface (OpenAI / Anthropic / LangChain).
+          aegis tools --schema "$IN_SCHEMA" "${args[@]}"
+        else
+          [ -n "$IN_MANIFEST" ] && args+=(--manifest "$IN_MANIFEST")
+          [ -n "$IN_SERVER" ]   && args+=(--server "$IN_SERVER")
+          [ -n "$IN_SERVER" ] && [ -n "$AEGIS_MCP_TOKEN" ] && args+=(--bearer-env AEGIS_MCP_TOKEN)
+          aegis mcp "${args[@]}"
+        fi
         status=$?
         {
           echo "report=$IN_OUT/audit-report.md"

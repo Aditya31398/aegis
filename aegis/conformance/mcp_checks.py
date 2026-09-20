@@ -126,6 +126,10 @@ def _omnibus(q: str, tool: McpTool) -> list[Finding]:
 
 # -- unconstrained schema ----------------------------------------------
 def _unconstrained(q: str, tool: McpTool) -> list[Finding]:
+    if tool.annotations.get("hosted"):
+        # No schema exists to be unconstrained. `hosted_tool_unbounded` says
+        # the real thing; repeating it here would be two findings for one fact.
+        return []
     effects = infer_effects(tool)
     dangerous = bool(effects & {Effect.WRITE, Effect.EGRESS, Effect.NETWORK,
                                 Effect.COMPUTE})

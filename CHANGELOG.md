@@ -8,6 +8,19 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 
 ## [Unreleased]
 
+### Added
+- `aegis tools --schema tools.json` audits OpenAI (Chat Completions/Assistants
+  and Responses), Anthropic and LangChain tool declarations through the same
+  pipeline as MCP; the GitHub Action takes the same file as `schema`. New
+  checks `hosted_tool_unbounded` (a provider-hosted tool declares no arguments,
+  so nothing can constrain it and the probe cannot reach it) and
+  `provider_validation_off` (OpenAI enforces a schema only under `strict: true`
+  with `additionalProperties: false`; the check never fires for stacks that
+  have no such switch).
+- Adapters can declare known effects with the `aegisEffects` annotation instead
+  of relying on name keywords; hosted tools use it (hosted web search is
+  network *and* egress, because the query leaves your environment).
+
 ## [0.4.0] - 2026-09-20
 
 The first version intended to land on PyPI, under a new distribution name.

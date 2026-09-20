@@ -31,8 +31,11 @@ Ordered by whether it unblocks a user, not by how interesting it is.
       graded by the evidence the check produces, in every output format
       (SARIF carries it as `rank`, separate from security-severity).
       `--min-confidence` gates what may fail a build; nothing is suppressed.
-- [ ] **LangChain / OpenAI tool-schema adapters.** Same three moves as the MCP
-      adapter: ingest, synthesize, harden. Most of `adapters/mcp.py` generalises.
+- [x] **LangChain / OpenAI tool-schema adapters.** `aegis tools --schema
+      tools.json` ingests OpenAI (chat and Responses), Anthropic and LangChain
+      declarations into the same normalised surface, so synthesis, probing and
+      hardening are unchanged. Adds `hosted_tool_unbounded` and
+      `provider_validation_off`.
 - [ ] **Message-bus mediation** to close the cross-agent taint hole
       (`54ef34904237b006`). The kernel would have to mediate agent-to-agent
       messages, not only tool calls. This is a real design change, not a patch.

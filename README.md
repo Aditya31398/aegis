@@ -541,6 +541,37 @@ you would run anyway. Three moves:
 Nothing in the audit executes a tool. The registry is built from inert doubles
 that raise if called.
 
+## Agents that do not speak MCP
+
+The pipeline is shaped around a normalised tool surface, not around MCP, so
+another stack is an ingest problem and nothing else:
+
+```
+aegis tools --schema tools.json --out audit-out
+```
+
+It reads the `tools=[...]` array as OpenAI Chat Completions / Assistants or
+Responses declares it, Anthropic's `input_schema` form, and LangChain dumps.
+Everything after ingest — policy synthesis, the payload probe, hardening, the
+reports — is the same code, and a test asserts the same tool declared in any
+of those dialects produces the same findings.
+
+Two things exist there that MCP does not have:
+
+- **Hosted tools.** `{"type": "web_search"}` or `{"type": "code_interpreter"}`
+  declares no arguments at all. There is nothing for a policy to narrow and
+  nothing for the probe to reach, so a clean probe result says *nothing* about
+  them — `hosted_tool_unbounded` says so explicitly. Their effects are declared
+  by the adapter rather than guessed from a name: a hosted web search is
+  network **and egress**, because the query string leaves your environment. An
+  unrecognised hosted type is assumed broad, not harmless.
+- **Provider-side validation is opt-in.** OpenAI enforces a function's schema
+  only under `strict: true` *with* `additionalProperties: false`. Without both,
+  the schema constrains what the model is asked for, not what your handler can
+  receive, which is reported as `provider_validation_off`. Anthropic and
+  LangChain have no such switch, so the check never fires there — flagging its
+  absence would be a false positive by construction.
+
 ## MCP-specific checks
 
 ### Effects are inferred from the surface, not the name

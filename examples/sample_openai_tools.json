@@ -1,0 +1,66 @@
+{
+  "_comment": "A fictional OpenAI tools=[...] array, in the shape people paste into the Chat Completions / Assistants APIs. Deliberately imperfect, like the MCP sample.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read a file from the agent workspace.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string", "description": "Path to read." }
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "run_sql",
+        "description": "Answer a question about the customer database. Accepts raw SQL.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sql": { "type": "string" },
+            "database": { "type": "string", "enum": ["analytics", "billing"] }
+          },
+          "required": ["sql"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "strict": true,
+      "function": {
+        "name": "send_invoice_email",
+        "description": "Email an invoice to a customer.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "to": { "type": "string", "pattern": "^[^@\\s]+@acme\\.example$", "maxLength": 254 },
+            "invoice_id": { "type": "string", "pattern": "^INV-[0-9]{6}$" },
+            "body": { "type": "string", "maxLength": 4000 }
+          },
+          "required": ["to", "invoice_id"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "delete_workspace_file",
+        "description": "Delete a file from the workspace permanently.",
+        "parameters": {
+          "type": "object",
+          "properties": { "path": { "type": "string" } },
+          "required": ["path"]
+        }
+      }
+    },
+    { "type": "web_search" },
+    { "type": "code_interpreter" }
+  ]
+}
