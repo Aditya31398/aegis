@@ -250,7 +250,7 @@ def _secrets(server: McpServer) -> list[Finding]:
                 f"the server completed initialize and tools/list with no "
                 f"credential attached. Anyone who can reach {server.command} "
                 f"can enumerate, and likely call, its {len(server.tools)} tools",
-                tool=server.name,
+                tool=server.name, confidence="confirmed",
                 witness="tools/list answered with no Authorization header"))
     elif server.transport in ("http", "sse") and not server.env.get("AUTH_TOKEN"):
         out.append(Finding(

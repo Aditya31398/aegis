@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__
-from .loopholes import SEVERITIES, AuditReport, Finding
+from .loopholes import CONFIDENCES, SEVERITIES, AuditReport, Finding
 
 JSON_SCHEMA = "aegis.audit/v1"
 SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
@@ -30,15 +30,21 @@ _SECURITY_SEVERITY = {"critical": "9.5", "high": "7.5", "medium": "5.0",
                       "low": "3.0", "info": "0.0"}
 _LEVEL = {"critical": "error", "high": "error", "medium": "warning",
           "low": "note", "info": "note"}
+# SARIF keeps the two axes apart: security-severity is "how bad", rank is
+# "how sure". A dashboard can sort or filter on either.
+_RANK = {"confirmed": 100.0, "likely": 65.0, "possible": 35.0}
 
 
 def to_json(report: AuditReport, *, source: str | Path | None = None,
-            threshold: str = "high", corpus_version: int | None = None
-            ) -> dict[str, Any]:
-    blocking = {f.fingerprint for f in report.blocking(threshold)}
+            threshold: str = "high", corpus_version: int | None = None,
+            min_confidence: str = "possible") -> dict[str, Any]:
+    blocking = {f.fingerprint for f in report.blocking(threshold, min_confidence)}
     counts = {s: 0 for s in SEVERITIES}
     for f in report.findings:
         counts[f.severity] += 1
+    by_confidence = {c: 0 for c in CONFIDENCES}
+    for f in report.findings:
+        by_confidence[f.confidence] += 1
     return {
         "schema": JSON_SCHEMA,
         "tool": {"name": "aegis", "version": __version__,
@@ -47,6 +53,7 @@ def to_json(report: AuditReport, *, source: str | Path | None = None,
         "fail_on": threshold,
         "passed": not blocking,
         "summary": {"total": len(report.findings), "by_severity": counts,
+                    "by_confidence": by_confidence,
                     "accepted": sum(1 for f in report.findings
                                     if f.fingerprint in report.accepted),
                     "blocking": len(blocking)},
@@ -55,6 +62,7 @@ def to_json(report: AuditReport, *, source: str | Path | None = None,
                 "fingerprint": f.fingerprint,
                 "category": f.category,
                 "severity": f.severity,
+                "confidence": f.confidence,
                 "title": f.title,
                 "detail": f.detail,
                 "tool": f.tool,
@@ -86,8 +94,10 @@ def to_sarif(report: AuditReport, *, source: str | Path | None = None
             "ruleId": f.category,
             "level": _LEVEL[f.severity],
             "message": {"text": _message(f)},
+            "rank": _RANK[f.confidence],
             "partialFingerprints": {"aegisFingerprint/v1": f.fingerprint},
-            "properties": {"severity": f.severity, "tool": f.tool, "arg": f.arg,
+            "properties": {"severity": f.severity, "confidence": f.confidence,
+                           "tool": f.tool, "arg": f.arg,
                            **({"witness": f.witness} if f.witness else {})},
         }
         if uri:
@@ -118,10 +128,12 @@ def to_sarif(report: AuditReport, *, source: str | Path | None = None
 
 def write(report: AuditReport, fmt: str, path: str | Path, *,
           source: str | Path | None = None, threshold: str = "high",
-          corpus_version: int | None = None) -> Path:
+          corpus_version: int | None = None,
+          min_confidence: str = "possible") -> Path:
     doc = (to_sarif(report, source=source) if fmt == "sarif"
            else to_json(report, source=source, threshold=threshold,
-                        corpus_version=corpus_version))
+                        corpus_version=corpus_version,
+                        min_confidence=min_confidence))
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
@@ -129,10 +141,12 @@ def write(report: AuditReport, fmt: str, path: str | Path, *,
 
 
 def dumps(report: AuditReport, fmt: str, *, source=None, threshold="high",
-          corpus_version: int | None = None) -> str:
+          corpus_version: int | None = None,
+          min_confidence: str = "possible") -> str:
     doc = (to_sarif(report, source=source) if fmt == "sarif"
            else to_json(report, source=source, threshold=threshold,
-                        corpus_version=corpus_version))
+                        corpus_version=corpus_version,
+                        min_confidence=min_confidence))
     return json.dumps(doc, indent=2)
 
 

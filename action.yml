@@ -44,6 +44,12 @@ inputs:
       unavailable on pull requests from forks.
     required: false
     default: "false"
+  min-confidence:
+    description: >-
+      Lowest confidence that may fail the build: confirmed, likely or possible
+      (default). Everything is reported either way; this only gates failure.
+    required: false
+    default: "possible"
   artifact-name:
     description: >-
       Name of the uploaded artifact. Must be unique within a workflow run, so
@@ -101,9 +107,11 @@ runs:
         IN_BASELINE: ${{ inputs.baseline }}
         IN_OUT: ${{ inputs.out }}
         IN_FAIL_ON: ${{ inputs.fail-on }}
+        IN_MIN_CONFIDENCE: ${{ inputs.min-confidence }}
       run: |
         set +e
-        args=(--out "$IN_OUT" --fail-on "$IN_FAIL_ON")
+        args=(--out "$IN_OUT" --fail-on "$IN_FAIL_ON"
+              --min-confidence "$IN_MIN_CONFIDENCE")
         [ -n "$IN_MANIFEST" ] && args+=(--manifest "$IN_MANIFEST")
         [ -n "$IN_SERVER" ]   && args+=(--server "$IN_SERVER")
         [ -n "$IN_SERVER" ] && [ -n "$AEGIS_MCP_TOKEN" ] && args+=(--bearer-env AEGIS_MCP_TOKEN)

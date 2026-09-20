@@ -58,6 +58,8 @@ th { color:var(--muted); font-weight:600; font-size:.8rem; text-transform:upperc
        letter-spacing:.06em; padding:.1rem .45rem; border-radius:.3rem; border:1px solid currentColor; }
 .tag.critical { color:var(--critical); } .tag.high { color:var(--high); }
 .tag.medium { color:var(--medium); } .tag.low { color:var(--low); } .tag.info { color:var(--info); }
+.conf { display:inline-block; margin-left:.4rem; font-size:.72rem; color:var(--muted);
+         text-transform:uppercase; letter-spacing:.06em; }
 .where { color:var(--muted); font-size:.85rem; margin:.1rem 0 .5rem; }
 .where code, pre code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
 pre { background:var(--bg); border:1px solid var(--line); border-radius:.4rem;
@@ -79,6 +81,7 @@ def _finding_block(f: Finding, accepted_reason: str | None) -> str:
     out = [f'<article class="finding {_e(f.severity)}'
            f'{" accepted" if accepted_reason else ""}">',
            f'<span class="tag {_e(f.severity)}">{_e(f.severity)}</span>',
+           f'<span class="conf">{_e(f.confidence)}</span>',
            f"<h3>{_e(f.title)}</h3>"]
     if where:
         out.append(f'<p class="where"><code>{_e(where)}</code> · '
@@ -133,6 +136,12 @@ def render_html(report: AuditReport, servers: list[McpServer], *,
         if crit or high else
         "No critical or high-severity findings. Medium and low items below are "
         "worth scheduling, not worth paging anyone.") + "</p>")
+    parts.append("<p>Each finding carries a confidence: <em>confirmed</em> means "
+                 "the input was pushed through the real decision path and "
+                 "admitted, or the schema literally says so; <em>likely</em> "
+                 "means two signals or one inference step; <em>possible</em> "
+                 "means a pattern that depends on context outside this audit. "
+                 "Nothing is hidden by confidence.</p>")
     parts.append("<p>Findings come from structural analysis of the declared "
                  "schemas, adversarial payload probing against the real "
                  "decision path, and meaning-preserving mutation of inputs that "

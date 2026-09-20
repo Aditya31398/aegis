@@ -23,7 +23,7 @@ which is what makes the tooling usable as a service.
 pip install -e ".[dev]"
 
 ruff check .
-pytest -q                                                    # 244 tests, all must pass
+pytest -q                                                    # 255 tests, all must pass
 aegis ratify  --policy policies/base.yaml
 aegis verify  --suites suites --policy policies/base.yaml --require-coverage
 aegis fuzz    --policy policies/base.yaml --iterations 20
@@ -73,12 +73,19 @@ failing, the fix is the code, not the test.
 8. **The wheel must work outside the repo.** Anything read at runtime lives
    under `aegis/` and is listed in `package-data`. The `package` CI job
    installs the wheel into a clean venv and runs from another directory.
-9. **Fingerprints must not move when the corpus does.** A payload finding's
+9. **Confidence never suppresses.** `confirmed`/`likely`/`possible` changes
+   how a finding is presented and whether it may fail a build
+   (`--min-confidence`), never whether it appears. Every category must have an
+   entry in `_CONFIDENCE`; `test_every_category_declares_confidence` fails
+   otherwise, and an unknown category under-claims rather than over-claims.
+   Confidence is not part of the fingerprint: re-grading a check must not
+   renumber anyone's baseline.
+10. **Fingerprints must not move when the corpus does.** A payload finding's
    identity is the (tool, argument) pair it reached, set via `Finding.key` —
    never the payload string that happened to arrive first. A corpus refresh
    that renumbered every customer's baseline would make the baseline useless,
    and the corpus is meant to be updated without a release.
-10. **Constitutional clauses have no waiver.** If a clause is inconvenient, the
+11. **Constitutional clauses have no waiver.** If a clause is inconvenient, the
    fix is to amend `aegis/constitution.yaml` in a visible diff, never to add a
    bypass flag.
 

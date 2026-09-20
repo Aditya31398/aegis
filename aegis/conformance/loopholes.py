@@ -46,6 +46,56 @@ from .spec import Step, load_suite
 SEVERITIES = ("critical", "high", "medium", "low", "info")
 
 
+# How sure we are, which is a different question from how bad it would be.
+# Severity without confidence makes a reader treat every finding the same way
+# and then stop reading. These are never suppressed on our side: a finding is
+# reported with its confidence, and the reader decides.
+CONFIDENCES = ("confirmed", "likely", "possible")
+
+# What kind of evidence each check produces:
+#
+#   confirmed -- a fact we observed. The real guard chain admitted the input,
+#                or the text/schema literally says so. No inference.
+#   likely    -- two independent signals, or a fact plus an inference step
+#                (e.g. inferred effects) that could be wrong.
+#   possible  -- a structural pattern that depends on context we cannot see.
+#
+# Every category must appear here; `test_every_category_declares_confidence`
+# fails when a new check is added without deciding. A check may pass a higher
+# confidence explicitly when it has better evidence for that particular
+# finding -- see the live branch of `unauthenticated_transport`.
+_CONFIDENCE: dict[str, str] = {
+    # observed through the real decision path
+    "payload_admitted": "confirmed",
+    "mutation_bypass": "confirmed",
+    # facts about the declared surface, no inference
+    "description_injection": "confirmed",
+    "plaintext_secret": "confirmed",
+    "tool_shadowing": "confirmed",
+    "unconstrained_schema": "confirmed",
+    "unconstrained_arg": "confirmed",
+    "dead_rule": "confirmed",
+    "phantom_grant": "confirmed",
+    "probe_skipped": "confirmed",
+    # a fact plus an inference that can be wrong
+    "unscreened_exit": "likely",          # rests on inferred effects
+    "annotation_contradicts_surface": "likely",
+    "omnibus_tool": "likely",
+    "irreversible_no_brake": "likely",    # the handler may confirm internally
+    "weak_regex": "likely",
+    "delegation_shape": "likely",
+    # depends on orchestration we cannot see from here
+    "unauthenticated_transport": "possible",   # confirmed when probed live
+    "taint_laundering": "possible",
+}
+
+
+def confidence_for(category: str) -> str:
+    # Unknown categories under-claim rather than over-claim, for the same
+    # reason annotations may only widen effects.
+    return _CONFIDENCE.get(category, "possible")
+
+
 @dataclass(frozen=True)
 class Finding:
     category: str
@@ -60,6 +110,15 @@ class Finding:
     # corpus is updated would invalidate every customer's baseline on a data
     # refresh, which is exactly what the corpus being data is meant to avoid.
     key: str = ""
+    # Left empty, it is derived from the category. Never part of the
+    # fingerprint: re-grading a check must not renumber anyone's baseline.
+    confidence: str = ""
+
+    def __post_init__(self):
+        if not self.confidence:
+            object.__setattr__(self, "confidence", confidence_for(self.category))
+        elif self.confidence not in CONFIDENCES:
+            raise ValueError(f"unknown confidence {self.confidence!r}")
 
     @property
     def fingerprint(self) -> str:
@@ -470,9 +529,16 @@ class AuditReport:
     def new(self) -> list[Finding]:
         return [f for f in self.findings if f.fingerprint not in self.accepted]
 
-    def blocking(self, threshold: str = "high") -> list[Finding]:
+    def blocking(self, threshold: str = "high",
+                 min_confidence: str = "possible") -> list[Finding]:
+        """What fails the build. `min_confidence` gates *blocking* only:
+        everything is still reported, because a low-confidence finding that
+        nobody sees is a suppressed finding."""
         cut = SEVERITIES.index(threshold)
-        return [f for f in self.new if SEVERITIES.index(f.severity) <= cut]
+        conf_cut = CONFIDENCES.index(min_confidence)
+        return [f for f in self.new
+                if SEVERITIES.index(f.severity) <= cut
+                and CONFIDENCES.index(f.confidence) <= conf_cut]
 
     def by_severity(self) -> dict[str, list[Finding]]:
         out: dict[str, list[Finding]] = {s: [] for s in SEVERITIES}
@@ -556,7 +622,8 @@ def consolidate(findings: list[Finding]) -> list[Finding]:
             detail, tool=tool, arg=arg, witness=worst.witness,
             # Identity is the unconstrained argument, not the payload that
             # happened to reach it first.
-            key=f"payload_admitted|{tool}|{arg}"))
+            key=f"payload_admitted|{tool}|{arg}",
+            confidence=worst.confidence))
 
     out = passthrough + merged
     out.sort(key=lambda f: (SEVERITIES.index(f.severity), f.category, f.tool, f.arg))
@@ -571,7 +638,8 @@ def format_audit(report: AuditReport) -> str:
             continue
         for f in buckets[sev]:
             mark = "  " if f.fingerprint not in report.accepted else "~ "
-            lines.append(mark + str(f))
+            suffix = "" if f.confidence == "confirmed" else f"  ({f.confidence})"
+            lines.append(mark + str(f) + suffix)
     counts = ", ".join(f"{len(buckets[s])} {s}" for s in SEVERITIES if buckets[s])
     lines.append("")
     lines.append(f"{len(report.findings)} findings ({counts}); "

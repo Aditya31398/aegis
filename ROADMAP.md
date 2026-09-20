@@ -27,9 +27,10 @@ Ordered by whether it unblocks a user, not by how interesting it is.
       (`schema: aegis.corpus/v1`), swappable with `--corpus` or `$AEGIS_CORPUS`.
       Payload findings are fingerprinted on the (tool, argument) pair, so a
       corpus refresh can reveal a hole but never invalidates a baseline.
-- [ ] **Per-finding confidence score.** Severity answers "how bad"; it does not
-      answer "how sure". A low-confidence finding should be reported
-      differently, not suppressed.
+- [x] **Per-finding confidence score.** `confirmed` / `likely` / `possible`,
+      graded by the evidence the check produces, in every output format
+      (SARIF carries it as `rank`, separate from security-severity).
+      `--min-confidence` gates what may fail a build; nothing is suppressed.
 - [ ] **LangChain / OpenAI tool-schema adapters.** Same three moves as the MCP
       adapter: ingest, synthesize, harden. Most of `adapters/mcp.py` generalises.
 - [ ] **Message-bus mediation** to close the cross-agent taint hole

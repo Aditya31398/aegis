@@ -118,6 +118,7 @@ def render_markdown(report: AuditReport, servers: list[McpServer], *,
             L.append("")
             if loc:
                 L.append(f"**Where:** `{loc}`  ")
+            L.append(f"**Confidence:** {f.confidence}  ")
             L.append(f"**What:** {f.detail}")
             if f.witness:
                 L.append("")

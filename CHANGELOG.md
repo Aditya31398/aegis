@@ -9,6 +9,12 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 ## [Unreleased]
 
 ### Added
+- Every finding now carries a confidence (`confirmed`, `likely`, `possible`)
+  graded by the evidence behind the check, in the text, Markdown, HTML, JSON
+  (`findings[].confidence`, `summary.by_confidence`) and SARIF (`rank`,
+  alongside `security-severity`) outputs. `--min-confidence` gates what may
+  fail a build; nothing is ever suppressed from the report. The GitHub Action
+  exposes it as `min-confidence`.
 - The adversarial payload corpus is now versioned data
   (`aegis/corpus/payloads.yaml`, `schema: aegis.corpus/v1`) and can be replaced
   with `--corpus` or `$AEGIS_CORPUS` without upgrading the package. The corpus

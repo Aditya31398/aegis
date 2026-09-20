@@ -270,6 +270,30 @@ not merely "an error was returned".
       rule: capability.arg_prefix
 ```
 
+### Severity is not confidence
+
+Severity answers "how bad if real". Confidence answers "how sure", and the two
+come apart constantly — an architectural risk can be high severity and low
+confidence at the same time. Every finding carries both:
+
+| Confidence | Evidence behind it |
+|---|---|
+| `confirmed` | the input went through the real guard chain and was admitted, or the schema/description literally says so |
+| `likely` | two independent signals, or one fact plus an inference step that could be wrong (inferred effects, for instance) |
+| `possible` | a structural pattern that depends on context this audit cannot see |
+
+Confidence never hides anything. It changes presentation, and it gates what
+may *fail* a build:
+
+```
+aegis audit --policy policies/base.yaml --fail-on high --min-confidence confirmed
+```
+
+That reports every finding exactly as before and fails only on the ones we can
+prove. SARIF keeps the axes apart too: `security-severity` for how bad, `rank`
+for how sure, so a dashboard can sort on either. Confidence is deliberately not
+part of a fingerprint — re-grading a check must never renumber a baseline.
+
 ### The payload corpus is data
 
 The payloads the probe engine pushes through the guard chain live in

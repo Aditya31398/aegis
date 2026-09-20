@@ -90,13 +90,16 @@ def _emit(report, args, source) -> bool:
         version = corpus_version(getattr(args, "corpus", None))
     except (OSError, ValueError):
         version = None
+    min_conf = getattr(args, "min_confidence", "possible")
     if args.output:
         fmt = args.format if args.format != "text" else "json"
         export.write(report, fmt, args.output, source=source,
-                     threshold=args.fail_on, corpus_version=version)
+                     threshold=args.fail_on, corpus_version=version,
+                     min_confidence=min_conf)
     elif args.format != "text":
         print(export.dumps(report, args.format, source=source,
-                           threshold=args.fail_on, corpus_version=version))
+                           threshold=args.fail_on, corpus_version=version,
+                           min_confidence=min_conf))
         return False
     print(format_audit(report))
     return True
@@ -108,8 +111,8 @@ def _audit(args) -> int:
     report = hunt(policy, suite_paths=suites, baseline=args.baseline,
                   corpus=args.corpus)
     if not _emit(report, args, args.policy):
-        return 1 if report.blocking(args.fail_on) else 0
-    blocking = report.blocking(args.fail_on)
+        return 1 if report.blocking(args.fail_on, args.min_confidence) else 0
+    blocking = report.blocking(args.fail_on, args.min_confidence)
     if blocking:
         print(f"\nRESULT: FAIL -- {len(blocking)} unaccepted finding(s) at "
               f"{args.fail_on} or above.")
@@ -181,7 +184,7 @@ def _mcp(args) -> int:
                              corpus_version=corpus_version(args.corpus))
     sarif_path = export.write(report, "sarif", outdir / "audit.sarif", source=source)
 
-    blocking = report.blocking(args.fail_on)
+    blocking = report.blocking(args.fail_on, args.min_confidence)
     if not _emit(report, args, source):
         return 1 if blocking else 0
     print(f"\nreport:   {written}")
@@ -260,6 +263,7 @@ def _init(args) -> int:
 
 
 _FORMATS = ["text", "json", "sarif"]
+_CONFIDENCES = ["confirmed", "likely", "possible"]
 
 # Exit codes are a public contract, like rule ids.
 EXIT_PASS, EXIT_FINDINGS, EXIT_USAGE, EXIT_INTERNAL = 0, 1, 2, 3
@@ -312,6 +316,9 @@ def main(argv=None) -> int:
     a.add_argument("--suites", default="suites")
     a.add_argument("--baseline", default="loopholes.baseline.yaml")
     a.add_argument("--fail-on", default="high", choices=_SEVERITY_CHOICES)
+    a.add_argument("--min-confidence", default="possible", choices=_CONFIDENCES,
+                   help="lowest confidence that may FAIL the build; everything "
+                        "is reported either way")
     a.add_argument("--corpus", default=None,
                    help="payload corpus YAML to use instead of the packaged "
                         "one (or set $AEGIS_CORPUS)")
@@ -343,6 +350,9 @@ def main(argv=None) -> int:
     m.add_argument("--client", default="")
     m.add_argument("--baseline", default=None)
     m.add_argument("--fail-on", default="high", choices=_SEVERITY_CHOICES)
+    m.add_argument("--min-confidence", default="possible", choices=_CONFIDENCES,
+                   help="lowest confidence that may FAIL the build; everything "
+                        "is reported either way")
     m.add_argument("--corpus", default=None,
                    help="payload corpus YAML to use instead of the packaged one")
     m.add_argument("--format", default="text", choices=_FORMATS,
