@@ -135,10 +135,101 @@ _SENSITIVE = ("secret", "credential", "password", "token", "key", "customer",
               "patient", "account", "ssn", "aadhaar")
 
 
-def infer_effects(tool: McpTool) -> frozenset[Effect]:
+# Schema shapes that imply an effect regardless of what the tool is called.
+# A tool named `sync_workspace` says nothing; a `path` plus a `content` argument
+# says it writes files.
+_CONFIRM_ARGS = ("confirm", "confirmation", "dry_run", "dryrun", "force",
+                 "acknowledge", "approve")
+
+
+@dataclass(frozen=True)
+class EffectInference:
+    """Effects plus *why*, so a report can show its reasoning and a check can
+    compare the server's own claims against the observable surface."""
+    effects: frozenset[Effect]
+    sources: tuple[str, ...] = ()
+    # Annotations that claim less authority than the surface demonstrates.
+    contradictions: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def mutating(self) -> bool:
+        return bool(self.effects & {Effect.WRITE, Effect.EGRESS, Effect.COMPUTE})
+
+
+def _schema_effects(tool: McpTool) -> list[tuple[Effect, str]]:
+    kinds = {kind_of(prop): prop for prop in tool.properties}
+    props = {p.lower(): schema for p, schema in tool.properties.items()}
+    out: list[tuple[Effect, str]] = []
+
+    if "path" in kinds and "content" in kinds:
+        out.append((Effect.WRITE, f"schema:{kinds['path']}+{kinds['content']}"))
+    if "url" in kinds:
+        out.append((Effect.NETWORK, f"schema:{kinds['url']}"))
+        if "content" in kinds:
+            # A URL plus a body is an outbound payload, whatever it is called.
+            out.append((Effect.EGRESS, f"schema:{kinds['url']}+{kinds['content']}"))
+    if "command" in kinds:
+        out.append((Effect.COMPUTE, f"schema:{kinds['command']}"))
+    if "sql" in kinds:
+        out.append((Effect.READ, f"schema:{kinds['sql']}"))
+    for prop, schema in props.items():
+        if schema.get("format") in ("uri", "url", "iri"):
+            out.append((Effect.NETWORK, f"schema:{prop}:format=uri"))
+        # A brake implies something worth braking.
+        if schema.get("type") == "boolean" and any(c in prop for c in _CONFIRM_ARGS):
+            out.append((Effect.WRITE, f"schema:{prop}:confirmation-flag"))
+    return out
+
+
+def _name_effects(tool: McpTool) -> list[tuple[Effect, str]]:
     hay = f"{tool.name} {tool.description}".lower()
-    found = {eff for eff, verbs in _VERBS if any(v in hay for v in verbs)}
-    return frozenset(found or {Effect.READ})
+    out = []
+    for eff, verbs in _VERBS:
+        verb = next((v for v in verbs if v in hay), None)
+        if verb:
+            out.append((eff, f"name:{verb.strip('_')}"))
+    return out
+
+
+# MCP tool annotations -> effects. These are hints written by the server
+# author: useful when they admit to more, worthless when they claim less.
+_ANNOTATION_EFFECTS = {"destructiveHint": Effect.WRITE, "openWorldHint": Effect.NETWORK}
+
+
+def infer_effects_detailed(tool: McpTool) -> EffectInference:
+    """Infer from the schema shape and the declared annotations, falling back
+    to tool-name keywords.
+
+    Annotations may only *widen* the result. `readOnlyHint: true` is a claim by
+    the party being audited; honouring it would let any server opt out of
+    scrutiny by asserting its own innocence -- and some clients auto-approve
+    tools marked read-only. So a read-only claim on a surface that demonstrably
+    mutates is recorded as a contradiction instead, for `mcp_checks` to report.
+    """
+    signals = _schema_effects(tool) + _name_effects(tool)
+    for key, eff in _ANNOTATION_EFFECTS.items():
+        if tool.annotations.get(key) is True:
+            signals.append((eff, f"annotation:{key}"))
+
+    effects = {eff for eff, _ in signals}
+    sources = tuple(dict.fromkeys(src for _, src in signals))
+
+    contradictions: list[tuple[str, str]] = []
+    if tool.annotations.get("readOnlyHint") is True:
+        for eff, src in signals:
+            if eff in (Effect.WRITE, Effect.EGRESS, Effect.COMPUTE):
+                contradictions.append(("readOnlyHint", src))
+    if tool.annotations.get("destructiveHint") is False:
+        for eff, src in signals:
+            if src.startswith("name:") and eff is Effect.WRITE:
+                contradictions.append(("destructiveHint", src))
+
+    return EffectInference(frozenset(effects or {Effect.READ}), sources,
+                           tuple(dict.fromkeys(contradictions)))
+
+
+def infer_effects(tool: McpTool) -> frozenset[Effect]:
+    return infer_effects_detailed(tool).effects
 
 
 def infer_classification(tool: McpTool) -> Classification:

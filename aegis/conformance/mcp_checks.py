@@ -16,7 +16,8 @@ import re
 import unicodedata
 from collections import defaultdict
 
-from aegis.adapters.mcp import McpServer, McpTool, infer_effects, kind_of
+from aegis.adapters.mcp import (McpServer, McpTool, infer_effects,
+                                infer_effects_detailed, kind_of)
 from aegis.decision import Effect
 
 from .loopholes import Finding
@@ -71,6 +72,7 @@ def mcp_findings(servers: list[McpServer]) -> list[Finding]:
             out += _omnibus(q, tool)
             out += _unconstrained(q, tool)
             out += _destructive(q, tool)
+            out += _annotation_claims(q, tool)
             out += _description(q, tool)
     return out
 
@@ -164,6 +166,44 @@ def _destructive(q: str, tool: McpTool) -> list[Finding]:
         f"the tool is described as '{verb}' but exposes no dry_run or confirm "
         f"argument, so a single model call is immediately irreversible",
         tool=q, witness=tool.description[:120])]
+
+
+# -- annotations that claim less than the surface shows -----------------
+_ANNOTATION_MEANING = {
+    "readOnlyHint": "does not modify its environment",
+    "destructiveHint": "performs only additive updates",
+}
+
+
+def _annotation_claims(q: str, tool: McpTool) -> list[Finding]:
+    """An MCP annotation is the server author's own claim about the tool.
+    Clients use it to decide what to auto-approve, and reviewers read it
+    instead of the handler. A claim the schema or the tool name contradicts is
+    therefore worse than no claim at all.
+
+    Two independent signals are required to fire: the annotation itself, and
+    an effect inferred from a different source. The witness names both.
+    """
+    inference = infer_effects_detailed(tool)
+    out = []
+    for claim, evidence in inference.contradictions:
+        out.append(Finding(
+            "annotation_contradicts_surface", "high",
+            f"'{claim}' is contradicted by the tool's own surface",
+            f"the server declares {claim}=" +
+            ("true" if claim == "readOnlyHint" else "false") +
+            f" ({_ANNOTATION_MEANING[claim]}), but {_explain(evidence)}. "
+            f"Clients that auto-approve tools on this annotation would run it "
+            f"unattended; treat the annotation as unreliable for this server",
+            tool=q, witness=f"{claim} vs {evidence}"))
+    return out
+
+
+def _explain(evidence: str) -> str:
+    kind, _, detail = evidence.partition(":")
+    if kind == "schema":
+        return f"its schema exposes {detail}, which mutates or sends"
+    return f"it is described as '{detail}'"
 
 
 # -- tool poisoning via description ------------------------------------

@@ -14,10 +14,10 @@ Ordered by whether it unblocks a user, not by how interesting it is.
 - [x] **Live MCP ingest.** `mcp --server URL` (Streamable HTTP, JSON or SSE)
       and `mcp --server-cmd CMD` (stdio). The client can only send
       `initialize`/`tools/list`; anonymous listing is a witnessed critical.
-- [ ] **Effect inference from schema, not keywords.** Current inference reads
-      tool names. Use the JSON Schema shape and the MCP annotations
-      (`readOnlyHint`, `destructiveHint`, `idempotentHint`) where servers
-      publish them; fall back to keywords.
+- [x] **Effect inference from schema, not keywords.** Schema shape first, then
+      MCP annotations, then name keywords, with the deciding signal recorded in
+      `EffectInference.sources`. Annotations may only widen; a narrowing claim
+      becomes an `annotation_contradicts_surface` finding.
 - [ ] **HTML report.** Same content as the Markdown, styled, single file.
       Markdown is fine for engineers; the person who approves the invoice
       wants something that opens in a browser.

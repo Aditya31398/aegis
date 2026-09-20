@@ -8,6 +8,15 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 
 ## [Unreleased]
 
+### Added
+- Effect inference reads the JSON Schema shape (path+content, url+body,
+  command, confirmation flags) and MCP annotations before falling back to tool
+  names; `infer_effects_detailed` returns the deciding signals.
+- New MCP check `annotation_contradicts_surface`: annotations may only widen
+  the inferred effects, and a `readOnlyHint` on a surface that mutates is a
+  high finding naming both signals. The sample manifest now carries such a
+  tool, so a run shows it (32 findings, was 26).
+
 ## [0.3.0] - 2026-09-20
 
 First release published to PyPI. 0.1.0 and 0.2.0 were tagged but never uploaded,

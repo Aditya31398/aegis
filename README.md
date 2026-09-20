@@ -495,7 +495,24 @@ that raise if called.
 
 ## MCP-specific checks
 
-Beyond the generic hunter: **omnibus tools** (one handler taking a free-form
+### Effects are inferred from the surface, not the name
+
+A tool called `sync_workspace` tells you nothing; a `path` argument beside a
+`content` argument tells you it writes files. Effects come from the schema
+shape first (a `url` plus a body is egress; a `command` argument is compute; a
+`confirm` boolean implies something worth braking), then the declared MCP
+annotations, and only then tool-name keywords. `EffectInference.sources`
+records which signal decided, so a severity can be traced back.
+
+Annotations (`readOnlyHint`, `destructiveHint`, `openWorldHint`) are claims
+made by the party being audited, so they may only ever *widen* the inferred
+effects. Honouring a narrowing claim would let any server opt out of scrutiny
+by asserting its own innocence — and clients that auto-approve tools marked
+read-only would run it unattended. A read-only claim on a surface that
+demonstrably mutates is reported as `annotation_contradicts_surface`, with
+both signals in the witness.
+
+Beyond that: **omnibus tools** (one handler taking a free-form
 string and dispatching many operations), **tool-name shadowing** across
 servers, **description injection** (model-directed imperatives and invisible
 Unicode in tool descriptions, which the model reads verbatim and a reviewer
@@ -513,22 +530,23 @@ Two design rules here:
   asserts a well-scoped tool with one free-form argument is *not* flagged.
 - Findings are **consolidated**. Twelve traversal payloads across three
   filesystem tools is not twelve problems, it is three unconstrained path
-  arguments. On the sample manifest this takes **82 raw findings down to 26**.
+  arguments. On the sample manifest this takes **101 raw findings down to 32**.
   It also keeps fingerprints stable as the payload corpus grows, which matters
   because the baseline file is keyed on them.
 
 ## What a run looks like
 
-On `examples/sample_mcp_manifest.json` (3 servers, 7 tools):
+On `examples/sample_mcp_manifest.json` (3 servers, 8 tools):
 
 ```
-26 findings — 7 critical, 12 high, 7 medium
-  critical  description_injection   helpdesk.escalate     "you must always"
-  critical  payload_admitted        analytics.query.sql   SELECT pg_read_file('/etc/passwd')
-  critical  payload_admitted        filesystem.*.path     /workspace/sub/../../etc/passwd
-  high      tool_shadowing          read_file             filesystem, helpdesk
-  high      omnibus_tool            analytics.query.sql   "Accepts raw SQL"
-  high      irreversible_no_brake   filesystem.delete_file
+32 findings — 8 critical, 16 high, 8 medium
+  critical  description_injection          helpdesk.escalate     "you must always"
+  critical  payload_admitted               analytics.query.sql   SELECT pg_read_file('/etc/passwd')
+  critical  payload_admitted               filesystem.*.path     /workspace/sub/../../etc/passwd
+  high      tool_shadowing                 read_file             filesystem, helpdesk
+  high      omnibus_tool                   analytics.query.sql   "Accepts raw SQL"
+  high      irreversible_no_brake          filesystem.delete_file
+  high      annotation_contradicts_surface filesystem.sync_workspace  readOnlyHint vs schema:path+content
 ```
 
 Apply the generated `hardened-policy.yaml` and re-probe: **0 critical, 1 high**

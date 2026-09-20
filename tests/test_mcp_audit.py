@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from aegis.adapters.mcp import (McpServer, McpTool, build_registry, harden,
-                                infer_effects, load_servers, synthesize_policy,
-                                write_hardened)
+                                infer_effects, infer_effects_detailed,
+                                load_servers, synthesize_policy, write_hardened)
 from aegis.decision import Effect
 from aegis.policy import load_policy
 from aegis.conformance.loopholes import (AuditReport, consolidate, probe_findings,
@@ -216,3 +216,87 @@ def test_report_handles_a_clean_surface():
         input_schema={"type": "object", "properties": {}, "additionalProperties": False}),))
     md = render_markdown(AuditReport(findings=[]), [clean])
     assert "No critical or high-severity findings" in md
+
+
+# ======================================================================
+# Effect inference: schema shape and annotations, not just tool names
+# ======================================================================
+def _tool(name="t", desc="", props=None, annotations=None):
+    return McpTool(name=name, description=desc,
+                   input_schema={"properties": props or {}},
+                   annotations=annotations or {})
+
+
+def test_schema_shape_infers_effects_without_any_keyword():
+    """A name that gives nothing away is the case keyword inference misses."""
+    inf = infer_effects_detailed(_tool(
+        "sync_workspace", "Keeps the local workspace in step with the remote one.",
+        {"path": {"type": "string"}, "content": {"type": "string"}}))
+    assert Effect.WRITE in inf.effects
+    assert any(s.startswith("schema:") for s in inf.sources)
+
+
+@pytest.mark.parametrize("props,expected", [
+    ({"url": {"type": "string"}}, Effect.NETWORK),
+    ({"url": {"type": "string"}, "body": {"type": "string"}}, Effect.EGRESS),
+    ({"endpoint": {"type": "string", "format": "uri"}}, Effect.NETWORK),
+    ({"cmd": {"type": "string"}}, Effect.COMPUTE),
+    ({"path": {"type": "string"}, "data": {"type": "string"}}, Effect.WRITE),
+    ({"confirm": {"type": "boolean"}}, Effect.WRITE),
+])
+def test_schema_signals(props, expected):
+    assert expected in infer_effects_detailed(_tool(props=props)).effects
+
+
+def test_annotations_may_widen_the_effect_set():
+    plain = _tool("process", "Processes the thing.")
+    assert infer_effects(plain) == frozenset({Effect.READ})
+    widened = infer_effects(_tool("process", "Processes the thing.",
+                                  annotations={"destructiveHint": True,
+                                               "openWorldHint": True}))
+    assert {Effect.WRITE, Effect.NETWORK} <= widened
+
+
+def test_annotations_can_never_narrow_the_effect_set():
+    """The audited party asserting its own innocence must not downgrade it."""
+    lying = _tool("delete_file", "Delete a file permanently.",
+                  {"path": {"type": "string"}}, {"readOnlyHint": True})
+    inf = infer_effects_detailed(lying)
+    assert Effect.WRITE in inf.effects
+    assert inf.contradictions and inf.contradictions[0][0] == "readOnlyHint"
+
+
+def test_honest_read_only_tool_is_not_contradicted():
+    """Negative control: the check must not fire on a truthful annotation."""
+    honest = _tool("list_tickets", "List open tickets.",
+                   {"status": {"type": "string", "enum": ["open", "closed"]}},
+                   {"readOnlyHint": True})
+    inf = infer_effects_detailed(honest)
+    assert inf.effects == frozenset({Effect.READ})
+    assert inf.contradictions == ()
+    assert [f for f in mcp_findings([McpServer(name="hd", tools=(honest,))])
+            if f.category == "annotation_contradicts_surface"] == []
+
+
+def test_honest_destructive_annotation_is_not_contradicted():
+    honest = _tool("delete_file", "Delete a file permanently.",
+                   {"path": {"type": "string"}, "confirm": {"type": "boolean"}},
+                   {"destructiveHint": True})
+    assert infer_effects_detailed(honest).contradictions == ()
+
+
+def test_contradiction_finding_names_both_signals(servers):
+    [f] = [f for f in mcp_findings(servers)
+           if f.category == "annotation_contradicts_surface"]
+    assert f.severity == "high"
+    assert f.tool == "filesystem.sync_workspace"
+    assert "readOnlyHint" in f.witness and "schema:" in f.witness
+
+
+def test_inference_sources_are_recorded_for_every_sample_tool(servers):
+    for server in servers:
+        for tool in server.tools:
+            inf = infer_effects_detailed(tool)
+            assert inf.effects
+            # Either we can say why, or we fell back to the READ default.
+            assert inf.sources or inf.effects == frozenset({Effect.READ})

@@ -129,8 +129,11 @@ Honest list. Do not paper over these.
    holds a sink, and the orchestration hands one's output to the other. The
    kernel cannot see that. Needs a mediated message bus. Accepted in the
    baseline as `54ef34904237b006`.
-2. **Effect inference in the MCP adapter is keyword-based.** It will
-   mis-classify unusual tool names. A wrong effect means a wrong severity.
+2. **Effect inference still guesses.** Schema shape and annotations come
+   first now, but a tool with an opaque name, an opaque schema and no
+   annotations falls back to keywords and then to READ. A wrong effect means
+   a wrong severity. Never let an annotation *narrow* the inferred effects:
+   it is a claim by the party being audited.
 3. **`sample_from_pattern` handles only simple anchored regexes.** It returns
    `None` rather than guessing, which is correct, but means exotic schemas skip
    probing silently.
