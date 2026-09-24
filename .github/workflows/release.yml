@@ -140,3 +140,28 @@ jobs:
           subject-name: ghcr.io/aditya31398/aegis
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+  notify-downstream:
+    # AgentDynamics depends on this package. Renaming the distribution to
+    # aegis-kernel in 0.4.0 broke its CI for three nights before anyone noticed,
+    # because nothing downstream reruns when we publish. This closes that gap.
+    #
+    # Cross-repo dispatch needs a token GITHUB_TOKEN cannot provide: add a
+    # fine-grained PAT with Actions: read/write on Aditya31398/agentdynamics as
+    # the DOWNSTREAM_CI_TOKEN secret. Without it this job skips; it never fails
+    # the release, because a downstream notification is not a release gate.
+    needs: pypi
+    if: ${{ !cancelled() && needs.pypi.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rerun AgentDynamics CI against the newly published version
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "DOWNSTREAM_CI_TOKEN is not set; skipping the downstream rerun." >&2
+            exit 0
+          fi
+          gh workflow run ci.yml --repo Aditya31398/agentdynamics --ref main
+          echo "Triggered agentdynamics CI for ${GITHUB_REF_NAME}."
