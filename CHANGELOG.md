@@ -8,6 +8,12 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-27
+
+`aegis tools` audits the tool surfaces of OpenAI, Anthropic and LangChain agents, not only MCP servers, through
+the same synthesis, probing and hardening pipeline. Two new checks cover what those surfaces have and MCP
+doesn't. Nothing is removed or renamed; the new rule ids are additions.
+
 ### Added
 - `aegis tools --schema tools.json` audits OpenAI (Chat Completions/Assistants
   and Responses), Anthropic and LangChain tool declarations through the same
@@ -20,6 +26,12 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 - Adapters can declare known effects with the `aegisEffects` annotation instead
   of relying on name keywords; hosted tools use it (hosted web search is
   network *and* egress, because the query leaves your environment).
+
+### Changed
+- Publishing a release reruns AgentDynamics' CI against it, so a change that
+  breaks its integration shows the same day rather than on the next nightly run.
+  It needs a `DOWNSTREAM_CI_TOKEN` secret (see `.github/workflows/release.yml`);
+  without one the step is skipped and the release is unaffected.
 
 ## [0.4.0] - 2026-09-20
 
