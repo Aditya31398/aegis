@@ -8,6 +8,14 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 
 ## [Unreleased]
 
+### Added
+- `Kernel.restrict(grant, remove=..., budget_fraction=...)` takes authority away from a grant already in use,
+  and from everything under it: tools, and all but a share of what remains of its budget. The grant keeps
+  working with what is left -- the step between leaving an agent alone and revoking it. It only narrows (a
+  fraction above 1 raises `PolicyError`, rule prefix `grant.restrict_widens`), is permanent like revocation,
+  and is audited as `agent.restrict` / `grant.restricted_subtree`. Both fuzzers now restrict grants at
+  random, and every invariant still holds after each operation.
+
 ## [0.5.0] - 2026-09-27
 
 `aegis tools` audits the tool surfaces of OpenAI, Anthropic and LangChain agents, not only MCP servers, through

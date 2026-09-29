@@ -20,7 +20,7 @@ import asyncio
 import inspect
 import threading
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Iterable, Sequence
 
 from .audit import AuditLog
 from .decision import BudgetExhausted, PolicyViolation, Verdict
@@ -250,6 +250,24 @@ class Kernel:
         grant.revoke()
         self._log(grant, Call(tool="agent.revoke", args={"reason": reason}),
                   Verdict.allow("grant.revoked_subtree", "kernel"))
+
+    def restrict(self, grant: Grant, *, remove: Iterable[str] = (),
+                 budget_fraction: float | None = None, reason: str = "operator") -> None:
+        """Take authority away from a grant in use, and from everything under it: the tools in `remove`, and
+        with `budget_fraction`, all but that share of what remains of each budget. The grant keeps working
+        with what is left -- the step between leaving an agent alone and revoking it outright.
+
+        Only ever narrows (raises PolicyError on a fraction above 1), and like revocation it is permanent:
+        there is no call that gives authority back. The in-place twin of spawning a weaker child. Audited
+        as `agent.restrict` / `grant.restricted_subtree`.
+        """
+        remove = frozenset(remove)
+        with self._lock:
+            grant.restrict(remove, budget_fraction)
+        self._log(grant, Call(tool="agent.restrict",
+                              args={"remove": sorted(remove), "budget_fraction": budget_fraction,
+                                    "reason": reason}),
+                  Verdict.allow("grant.restricted_subtree", "kernel"))
 
     def _log(self, grant: Grant, call: Call, verdict: Verdict) -> None:
         self.audit.append(agent=grant.agent_name, grant_id=grant.grant_id,

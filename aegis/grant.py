@@ -96,6 +96,16 @@ class BudgetLedger:
                 node.usd += usd
                 node.tokens += tokens
 
+    def narrowed(self, fraction: float) -> Budget:
+        """A limit leaving only `fraction` of what remains of each budget: spent + remaining * fraction.
+        Clamped to the current limit, which spend already booked past it (`record`) could otherwise raise."""
+        with self._lock:
+            rem, lim = self.remaining(), self.limit
+            return Budget(usd=min(lim.usd, self.usd + rem.usd * fraction),
+                          tokens=min(lim.tokens, self.tokens + int(rem.tokens * fraction)),
+                          wall_clock_s=min(lim.wall_clock_s, self.elapsed_s + rem.wall_clock_s * fraction),
+                          tool_calls=min(lim.tool_calls, self.tool_calls + int(rem.tool_calls * fraction)))
+
     def refund(self, usd: float = 0.0, tokens: int = 0, calls: int = 0) -> None:
         with self._lock:
             for node in self.chain():
@@ -164,6 +174,25 @@ class Grant:
         self.revoked = True
         for c in self.children:
             c.revoke()
+
+    def restrict(self, remove: frozenset[str], budget_fraction: float | None = None) -> None:
+        """Take `remove`, and with `budget_fraction` all but that share of what remains of each budget,
+        from this grant and every grant under it. Mutated only by Kernel.restrict, which audits it.
+
+        INVARIANT: only narrows. A child keeps child.tools <= parent.tools because the whole subtree loses
+        the same tools, and child.limit <= parent.limit because a child's spend is also its parent's, so
+        spent + remaining * f is no larger for the child than for the parent.
+        """
+        if budget_fraction is not None and not 0.0 <= budget_fraction <= 1.0:
+            raise PolicyError(
+                f"grant.restrict_widens: budget_fraction {budget_fraction} is outside [0, 1]")
+        from dataclasses import replace
+        for g in [self, *self.descendants()]:
+            policy = g.policy.restricted_to(set(g.policy.tool_names - remove))
+            if budget_fraction is not None:
+                g.ledger.limit = g.ledger.narrowed(budget_fraction)
+                policy = replace(policy, budget=g.ledger.limit)
+            g.policy = policy
 
     # -- attenuation -----------------------------------------------------
     def attenuate(self, req: SpawnRequest) -> "Grant":

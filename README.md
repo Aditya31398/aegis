@@ -212,6 +212,11 @@ individually within its own limit.
 
 Revocation is total: revoking a grant disables its entire subtree immediately.
 
+Between leaving an agent alone and revoking it, `kernel.restrict(grant, remove={...}, budget_fraction=...)`
+takes tools, or all but a share of what remains of the budget, away from a grant already in use and from
+everything under it. The grant keeps working with what is left. Like revocation it only narrows and is
+permanent, and it is audited (`agent.restrict`).
+
 ## The four constraint classes
 
 | Class | Mechanism | Example rule ids |
@@ -321,7 +326,7 @@ every prior fingerprint survives.
 ### 2. Invariants under fuzz (`aegis/conformance/invariants.py`)
 
 A random workload generator drives the kernel with thousands of arbitrary
-call/spawn/revoke sequences, half hostile payloads and half well-formed calls
+call/spawn/revoke/restrict sequences, half hostile payloads and half well-formed calls
 the policy admits. Seven invariants are re-checked after *every* operation:
 
 `attenuation` · `depth_bound` · `budget_conservation` · `no_effect_on_deny` ·

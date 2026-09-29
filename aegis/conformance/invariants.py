@@ -2,7 +2,8 @@
 scenarios someone thought to write down.
 
 A random workload generator drives the kernel with thousands of arbitrary
-call/spawn sequences and each invariant is checked after every operation. This
+call/spawn/revoke/restrict sequences and each invariant is checked after every
+operation. This
 is the part that catches regressions nobody anticipated.
 
 `afuzz` runs the same invariants against the async path: each round is a batch
@@ -76,7 +77,7 @@ def inv_no_effect_on_deny(root: Grant, *, kernel: Kernel,
     """Executed side effects must never exceed the number of ALLOW records for
     executable tools. A denial that still ran code shows up here."""
     allows = sum(1 for r in kernel.audit.records
-                 if r.allowed and r.tool not in ("agent.spawn", "agent.revoke"))
+                 if r.allowed and r.tool not in ("agent.spawn", "agent.revoke", "agent.restrict"))
     if len(recorder.calls) > allows:
         return [Violation("no_effect_on_deny",
                           f"{len(recorder.calls)} executions vs {allows} allows")]
@@ -164,6 +165,14 @@ def _pick_grant(rng: random.Random, live: list[Grant]) -> Grant:
 _OFF_POLICY = {"shell.exec", "payments.transfer", "iam.grant", "email.send"}
 
 
+def _restrict(rng: random.Random, kernel: Kernel, live: list[Grant], tools: list[str]) -> None:
+    """Narrow a live grant in place: some tools, and sometimes its budget -- to nothing, half, or unchanged.
+    Never the root, as with revocation: a root that lost its tools would stop the workload reaching the
+    states the budget invariants are about (test_fuzz_workload_reaches_budget_exhaustion)."""
+    kernel.restrict(rng.choice(live[1:]), remove=rng.sample(tools, rng.randint(0, 2)),
+                    budget_fraction=rng.choice([None, None, 0.0, 0.5, 1.0]))
+
+
 def _check_all(root: Grant, kernel: Kernel, recorder: SideEffectRecorder
                ) -> list[Violation]:
     out: list[Violation] = []
@@ -195,6 +204,8 @@ def fuzz(policy: Policy, *, steps: int = 400, seed: int = 0
                 live.append(kernel.spawn(grant, req))
             elif roll < 0.30 and len(live) > 1:
                 kernel.revoke(rng.choice(live[1:]))
+            elif roll < 0.35 and len(live) > 1:
+                _restrict(rng, kernel, live, tools)
             else:
                 tool, args = _pick_call(rng, tools)
                 kernel.invoke(grant, tool, **args)
@@ -243,6 +254,8 @@ async def _afuzz(policy: Policy, *, rounds: int, batch: int, seed: int,
                 live.append(await kernel.aspawn(grant, req))
             elif roll < 0.25 and len(live) > 1:
                 kernel.revoke(rng.choice(live[1:]))
+            elif roll < 0.30 and len(live) > 1:
+                _restrict(rng, kernel, live, tools)
             else:
                 tool, args = _pick_call(rng, tools)
                 await kernel.ainvoke(grant, tool, **args)
