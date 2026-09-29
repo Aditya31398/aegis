@@ -9,6 +9,14 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 ## [Unreleased]
 
 ### Added
+- **Untrusted input narrows what an agent may do next.** A tool registered with `untrusted=True` returns
+  content from outside the trust boundary -- a web page, an inbound email, an uploaded file -- which may carry
+  instructions. Once a grant has read one, a policy's new `integrity: {untrusted_blocks: [egress, write]}`
+  refuses calls to tools with those effects for the rest of its run (`integrity.untrusted_input`), and every
+  grant it spawns afterwards starts marked too. The kernel cannot tell an injected instruction from a real
+  one, but it can see an agent that has read such content trying to send or write. Optional and off by
+  default; `extends` may only add blocks, and `aegis drift` reports lifting one as `integrity.block_lifted`. A
+  policy without the section keeps its digest.
 - `Kernel.restrict(grant, remove=..., budget_fraction=...)` takes authority away from a grant already in use,
   and from everything under it: tools, and all but a share of what remains of its budget. The grant keeps
   working with what is left -- the step between leaving an agent alone and revoking it. It only narrows (a

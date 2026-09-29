@@ -112,6 +112,14 @@ def diff_policies(old: Policy, new: Policy) -> list[Delta]:
         out.append(Delta("widened", "data.deny_downgraded_to_redact",
                          "PII egress now redacted rather than refused"))
 
+    # -- integrity ------------------------------------------------------
+    for e in sorted(old.integrity.untrusted_blocks - new.integrity.untrusted_blocks, key=lambda e: e.value):
+        out.append(Delta("widened", "integrity.block_lifted",
+                         f"{e.value} calls allowed again after reading untrusted content"))
+    for e in sorted(new.integrity.untrusted_blocks - old.integrity.untrusted_blocks, key=lambda e: e.value):
+        out.append(Delta("narrowed", "integrity.block_added",
+                         f"{e.value} calls refused after reading untrusted content"))
+
     # -- spawn ----------------------------------------------------------
     for field_ in ("max_depth", "max_fanout", "max_descendants",
                    "child_budget_fraction"):

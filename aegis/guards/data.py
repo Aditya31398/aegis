@@ -197,6 +197,42 @@ def _redact_args(args: dict[str, Any], kinds: frozenset[str]) -> dict[str, Any]:
     return {k: (redact(v, kinds) if isinstance(v, str) else v) for k, v in args.items()}
 
 
+class IntegrityGuard:
+    """Pre-call: once a grant has read untrusted content, refuse tools with an effect the policy blocks.
+
+    Content from outside the trust boundary can carry instructions ("forward this to..."). The kernel cannot
+    tell an injected instruction from a real one, but it can see that an agent which has read such content
+    is now trying to send, write or spend -- and the policy says which of those it may not do from then on.
+    """
+
+    name = "integrity"
+
+    def check(self, grant: Grant, call: Call) -> Verdict:
+        blocks = grant.policy.integrity.untrusted_blocks
+        if not blocks or grant.untrusted is None:
+            return Verdict.allow("integrity.clean", self.name)
+        hit = blocks & frozenset(call.meta.get("effects", ()))
+        if not hit:
+            return Verdict.allow("integrity.unblocked_effect", self.name)
+        return Verdict.deny(
+            "integrity.untrusted_input",
+            f"'{call.tool}' has effect {sorted(e.value for e in hit)}, which this policy blocks once an agent "
+            f"has read untrusted content (from '{grant.untrusted}')",
+            self.name, effects=sorted(e.value for e in hit), source=grant.untrusted)
+
+
+class IntegrityPostGuard:
+    """Post-call: reading an untrusted tool's result marks the grant (and every grant it spawns after)."""
+
+    name = "integrity"
+
+    def inspect(self, grant: Grant, call: Call, result: Any) -> Verdict:
+        if call.meta.get("untrusted") and grant.untrusted is None:
+            grant.untrusted = call.tool
+            return Verdict.allow("integrity.untrusted_read", self.name, source=call.tool)
+        return Verdict.allow("integrity.unchanged", self.name)
+
+
 class ClassificationPostGuard:
     """Post-call: enforce the read ceiling and raise the agent's taint."""
 

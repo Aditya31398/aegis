@@ -217,13 +217,14 @@ takes tools, or all but a share of what remains of the budget, away from a grant
 everything under it. The grant keeps working with what is left. Like revocation it only narrows and is
 permanent, and it is audited (`agent.restrict`).
 
-## The four constraint classes
+## The constraint classes
 
 | Class | Mechanism | Example rule ids |
 |---|---|---|
 | Tool / side effect | default-deny allowlist + per-argument regex, prefix, enum, length, forbidden-pattern | `capability.not_granted`, `capability.arg_prefix`, `capability.unexpected_arg` |
 | Spend / time | hierarchical ledger, pre-flight admission | `budget.usd_exceeded`, `budget.tool_calls_exceeded`, `budget.deadline_exceeded` |
 | Data / PII egress | classification ceiling on reads, taint propagation, PII scan at declared sinks | `data.classification_exceeded`, `data.taint_egress_blocked`, `data.pii_egress_blocked` |
+| Integrity (optional) | once an agent has read a tool marked `untrusted` (web page, inbound email, upload), the effects `integrity.untrusted_blocks` names are refused for the rest of its run | `integrity.untrusted_input` |
 | Spawning | depth, fan-out, whole-tree descendant cap, delegable-tool list | `spawn.max_depth_exceeded`, `spawn.max_fanout_exceeded`, `spawn.privilege_escalation` |
 
 Rule ids are the stable contract. Tests pin the id, never the prose, so

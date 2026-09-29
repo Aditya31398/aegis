@@ -109,6 +109,8 @@ class Kernel:
         if spec is not None:
             call.est_usd = spec.cost_usd
             call.meta["classification"] = spec.classification
+            call.meta["effects"] = spec.effects
+            call.meta["untrusted"] = spec.untrusted
 
         # Spawning is not a tool call: it mints authority, so it has its own
         # entry point with its own guard path. Found by the fuzzer.

@@ -23,6 +23,9 @@ class ToolSpec:
     cost_usd: float = 0.0
     description: str = ""
     is_async: bool = False
+    # Returns content from outside the trust boundary (a web page, an inbound email, an uploaded file): text
+    # that may carry instructions. Reading it marks the grant untrusted (IntegrityPostGuard).
+    untrusted: bool = False
 
 
 def _is_coroutine_callable(fn: Callable[..., Any]) -> bool:
@@ -37,7 +40,7 @@ class ToolRegistry:
     def register(self, name: str, fn: Callable[..., Any], *,
                  effects: set[Effect] | set[str] = frozenset(),
                  classification: Any = Classification.PUBLIC,
-                 cost_usd: float = 0.0, description: str = "") -> None:
+                 cost_usd: float = 0.0, description: str = "", untrusted: bool = False) -> None:
         if name in self._tools:
             raise ValueError(f"tool '{name}' already registered")
         self._tools[name] = ToolSpec(
@@ -45,7 +48,7 @@ class ToolRegistry:
             effects=frozenset(Effect(e) for e in effects),
             classification=Classification.parse(classification),
             cost_usd=cost_usd, description=description,
-            is_async=_is_coroutine_callable(fn),
+            is_async=_is_coroutine_callable(fn), untrusted=bool(untrusted),
         )
 
     def tool(self, name: str, **kw):

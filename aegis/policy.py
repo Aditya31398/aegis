@@ -140,6 +140,13 @@ class DataPolicy:
 
 
 @dataclass(frozen=True)
+class IntegrityPolicy:
+    """What a grant may no longer do once it has read untrusted content: calls to tools with any of these
+    effects are refused (`integrity.untrusted_input`). Empty -- the default -- enforces nothing."""
+    untrusted_blocks: frozenset[Effect] = frozenset()
+
+
+@dataclass(frozen=True)
 class SpawnPolicy:
     max_depth: int = 0
     max_fanout: int = 0
@@ -157,6 +164,7 @@ class Policy:
     budget: Budget = Budget()
     data: DataPolicy = DataPolicy()
     spawn: SpawnPolicy = SpawnPolicy()
+    integrity: IntegrityPolicy = IntegrityPolicy()
 
     # ---- derived -------------------------------------------------------
     @property
@@ -182,7 +190,7 @@ class PolicyError(ValueError):
 # Loader
 # --------------------------------------------------------------------------
 
-_TOP_LEVEL = {"name", "version", "tools", "effects", "budget", "data", "spawn", "extends"}
+_TOP_LEVEL = {"name", "version", "tools", "effects", "budget", "data", "spawn", "integrity", "extends"}
 
 
 def load_policy(path: str | Path) -> Policy:
@@ -291,10 +299,17 @@ def _parse_policy(raw: dict[str, Any], base: Policy | None = None,
     if not 0.0 < spawn.child_budget_fraction <= 1.0:
         raise PolicyError(f"{source}: child_budget_fraction must be in (0, 1]")
 
+    # Integrity -----------------------------------------------------------
+    # An `extends` child adds blocks to its parent's; it cannot lift one.
+    isec = raw.get("integrity") or {}
+    ibase = base.integrity if base else IntegrityPolicy()
+    integrity = IntegrityPolicy(untrusted_blocks=ibase.untrusted_blocks | frozenset(
+        Effect(e) for e in isec.get("untrusted_blocks", ())))
+
     return Policy(
         name=raw.get("name", base.name if base else "unnamed"),
         version=int(raw.get("version", 1)),
-        tools=tools, effects=effects, budget=budget, data=data, spawn=spawn,
+        tools=tools, effects=effects, budget=budget, data=data, spawn=spawn, integrity=integrity,
     )
 
 
@@ -335,7 +350,7 @@ def dump_policy(policy: Policy) -> dict[str, Any]:
                              "child_budget_fraction": sp.child_budget_fraction}
     if sp.allow_tools is not None:
         spawn["allow_tools"] = sorted(sp.allow_tools)
-    return {
+    out = {
         "name": policy.name,
         "version": policy.version,
         "effects": sorted(e.value for e in policy.effects),
@@ -351,6 +366,10 @@ def dump_policy(policy: Policy) -> dict[str, Any]:
         },
         "spawn": spawn,
     }
+    # only when set, so a policy without it keeps the digest it had before the section existed
+    if policy.integrity.untrusted_blocks:
+        out["integrity"] = {"untrusted_blocks": sorted(e.value for e in policy.integrity.untrusted_blocks)}
+    return out
 
 
 def policy_digest(policy: Policy) -> str:

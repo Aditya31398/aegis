@@ -136,6 +136,8 @@ class Grant:
     revoked: bool = False
     # Data-flow taint: highest classification this agent has observed.
     taint: int = 0
+    # Integrity: the untrusted tool whose content this agent has read, if any (IntegrityPostGuard).
+    untrusted: str | None = None
 
     # -- construction ----------------------------------------------------
     @staticmethod
@@ -234,6 +236,7 @@ class Grant:
             depth=self.depth + 1,
             parent=self,
             taint=self.taint,
+            untrusted=self.untrusted,
         )
         self.children.append(child)
         return child
