@@ -8,6 +8,14 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-07
+
+Two ways to take authority from an agent short of revoking it: `Kernel.restrict` removes tools or budget from a
+grant in use, and an integrity policy refuses risky effects once an agent has read untrusted content. Both only
+narrow; nothing is removed or renamed, and the new rule ids are additions. A policy without an `integrity` section
+keeps its digest. AgentDynamics 0.9 uses both (server-side restriction directives, and refusals under
+`integrity.untrusted_input` in its console).
+
 ### Added
 - **Untrusted input narrows what an agent may do next.** A tool registered with `untrusted=True` returns
   content from outside the trust boundary -- a web page, an inbound email, an uploaded file -- which may carry
