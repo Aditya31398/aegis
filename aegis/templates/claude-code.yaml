@@ -1,0 +1,68 @@
+# Aegis over Claude Code's own tools: `aegis hook --policy claude-code.yaml` as a PreToolUse hook.
+#
+# Default deny: a tool not listed is refused, MCP tools included (they are named mcp__<server>__<tool>; better,
+# run MCP servers behind `aegis gateway`, which also keeps budgets and taint). The hook only ever refuses, so
+# Claude Code's own permission prompts still apply to everything it lets through.
+#
+# The patterns below are tripwires for common mistakes, not a sandbox: a shell can do anything a program can,
+# and a determined command can be phrased past any regex. Constrain what you can (paths, hosts), and run Claude
+# Code somewhere a mistake is cheap.
+name: claude-code
+version: 1
+
+effects: [read, write, network, egress, compute, spawn]
+
+tools:
+  allow:
+    - name: Read
+    - name: Glob
+    - name: Grep
+    - name: LS
+    - name: TodoWrite
+    - name: Task
+
+    - name: Edit
+      deny_extra_args: false
+      args:
+        file_path: &no_secrets_path
+          forbid_matches: '(?i)(^|[\\/])(\.env(\.|$)|\.ssh[\\/]|\.aws[\\/]|\.git[\\/]config$|id_rsa|id_ed25519)|\.pem$|\.key$'
+    - name: MultiEdit
+      deny_extra_args: false
+      args:
+        file_path: *no_secrets_path
+    - name: Write
+      deny_extra_args: false
+      args:
+        file_path: *no_secrets_path
+        content: {max_len: 2000000}
+
+    - name: Bash
+      deny_extra_args: false
+      args:
+        command:
+          max_len: 8000
+          # piping a download into a shell; deleting from / or home; force-pushing; world-writable; raw disks
+          forbid_matches: '(?i)(curl|wget|iwr|irm)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b|\brm\s+-[a-z]*r[a-z]*\s+(-[a-z]+\s+)*("|'')?(/|~|\$HOME)("|'')?(\s|$)|\bgit\s+push\b[^;&|]*\s(-f|--force)(\s|$)|\bchmod\s+(-R\s+)?777\b|>\s*/dev/(sd|nvme|disk)|\bmkfs\.|\bdd\s+[^;&|]*of=/dev/'
+
+    - name: WebFetch
+      deny_extra_args: false
+      args:
+        url: {matches: '^https://\S+$'}
+    - name: WebSearch
+      deny_extra_args: false
+      args:
+        query: {max_len: 1000}
+
+# Required by the constitution. The hook can't enforce them -- each call is its own process -- but the gateway
+# and in-process kernels do.
+budget:
+  usd: 100.0
+  tokens: 50000000
+  wall_clock_s: 86400
+  tool_calls: 100000
+
+data:
+  egress:
+    # anything that can move data out is screened: a key or private key in a command, a file or a URL is refused
+    sinks: [Edit, MultiEdit, Write, Bash, WebFetch, WebSearch]
+    block_pii: [api_key, private_key, credit_card]

@@ -283,6 +283,9 @@ def fetch_stdio(command: str | list[str], *, env: dict[str, str] | None = None,
     """Launch a stdio server, handshake, and return its tool surface."""
     argv = shlex.split(command, posix=os.name != "nt") if isinstance(command, str) \
         else list(command)
+    if isinstance(command, str) and os.name == "nt":
+        # non-POSIX splitting keeps backslashes in Windows paths, and the quotes around them too
+        argv = [a[1:-1] if len(a) >= 2 and a[0] == a[-1] == '"' else a for a in argv]
     if not argv:
         raise McpClientError("empty server command")
     t = _StdioTransport(argv, env, timeout)

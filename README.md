@@ -41,6 +41,50 @@ aegis mcp --manifest claude_desktop_config.json --out audit-out
 `audit-out/` gets a Markdown report, `audit.json`, `audit.sarif`, and a
 `hardened-policy.yaml` you can adopt.
 
+## Quickstart: put an MCP server behind the kernel
+
+The audit says what a server permits; the gateway enforces what you decide. Point the MCP client (Claude Code,
+Claude Desktop, Cursor, an Agent SDK app) at `aegis gateway` instead of the server:
+
+```json
+{"mcpServers": {"files": {
+  "command": "aegis",
+  "args": ["gateway", "--policy", "hardened-policy.yaml", "--prefix", "files.", "--audit", "aegis-audit.jsonl",
+           "--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace"]}}}
+```
+
+The gateway starts the server and relays the protocol, and every `tools/call` goes through `Kernel.invoke`:
+the allowlist and argument constraints, the budget, the data and integrity guards, the audit log. The server
+only ever sees calls the kernel admitted; a refusal reaches the model as a tool error it can read
+(`Refused by Aegis (capability.arg_prefix): ...`). Budgets, taint and untrusted input carry across the
+session, because the kernel lives as long as the client's connection.
+
+- `tools/list` is filtered to what the grant holds, so the model isn't shown tools it may not use.
+- The server's tools are registered with the effects the audit infers (annotations may only widen them),
+  and the policy is ratified against them, as `build_kernel` does. A policy that doesn't ratify -- a grant
+  for a tool the server lacks included (C7) -- refuses every call and says why on stderr.
+- `resources/read` and `prompts/get` carry content into the model without a tool call, so they are refused
+  unless `--allow resources` / `--allow prompts`. A method the gateway doesn't know is refused.
+- `--prefix` matches the hardened policy's names (`<server>.<tool>`); `--classify tool=confidential` sets
+  what a tool's results are, for the read ceiling.
+
+## Quickstart: Claude Code's own tools
+
+The gateway covers MCP tools. Claude Code's built-in ones (Bash, Edit, Write, WebFetch...) never pass through
+an MCP server, so `aegis hook` puts the kernel in front of them as a `PreToolUse` hook:
+
+```json
+{"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command",
+  "command": "aegis hook --policy .claude/aegis.yaml --audit .claude/aegis-audit.jsonl"}]}]}}
+```
+
+Start from [`aegis/templates/claude-code.yaml`](aegis/templates/claude-code.yaml): file edits away from
+`.env`, `.ssh` and keys, no download piped into a shell, no `rm -rf ~`, no force-push, and no API key or
+private key in a command, a file or a URL. A refusal blocks the call and tells the model why. An allowed
+call prints nothing, so Claude Code's own permission rules still apply: the hook can only take authority
+away. Each call is its own process, so budgets and taint are not tracked here; anything that goes wrong
+(no policy, a policy that doesn't ratify, input that isn't a tool call) blocks.
+
 ## Quickstart: enforce a policy on your own agents
 
 ```bash
@@ -392,6 +436,9 @@ Step 5 is the point: widening authority is always a deliberate, reviewed act.
 ## What this does not do
 
 - It can't stop the model from *trying*. It stops attempts from having effects.
+- It mediates only what reaches it: tools called through a kernel (`Agent`, `invoke`), MCP servers behind
+  `aegis gateway`, and Claude Code's tools under `aegis hook`. A tool the agent can reach some other way --
+  a client configured without the gateway, code that holds the raw callable -- is outside it.
 - Constraints are only as good as the policy. A tool registered with loose
   regexes is a hole the kernel will faithfully honour.
 - The PII scanner is a backstop, not the primary control — the primary control

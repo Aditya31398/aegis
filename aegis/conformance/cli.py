@@ -124,6 +124,37 @@ def _audit(args) -> int:
     return 0
 
 
+def _gateway(args) -> int:
+    from aegis.adapters import gateway
+    from aegis.audit import AuditLog
+    server = list(args.server)
+    if server[:1] == ["--"]:
+        server = server[1:]
+    if not server:
+        print("error: name the MCP server's command after --", file=sys.stderr)
+        return 2
+    classify = {}
+    for item in args.classify:
+        name, sep, level = item.partition("=")
+        if not sep:
+            print(f"error: --classify takes TOOL=LEVEL, not {item!r}", file=sys.stderr)
+            return 2
+        classify[name] = level
+    policy = load_policy(args.policy)
+    return gateway.run(policy, server, agent=args.agent, prefix=args.prefix, allow=args.allow, classify=classify,
+                       audit=AuditLog(args.audit) if args.audit else None)
+
+
+def _hook(args) -> int:
+    # Claude Code's exit codes, not ours: anything but 2 lets the call run, so nothing may escape as 3
+    from aegis.adapters import claude_code
+    try:
+        return claude_code.main(lambda: load_policy(args.policy), agent=args.agent, audit_path=args.audit)
+    except BaseException as exc:                # noqa: BLE001 -- fail closed: 2 is the only code that blocks
+        print(f"Aegis: refusing the call, the hook failed: {exc!r}", file=sys.stderr)
+        return claude_code.BLOCK
+
+
 def _ratify(args) -> int:
     policy = load_policy(args.policy)
     registry, _ = build_fixture_registry(policy)
@@ -411,6 +442,30 @@ def main(argv=None) -> int:
     t.add_argument("--format", default="text", choices=_FORMATS)
     t.add_argument("--output", default=None)
     t.set_defaults(handler=_tools)
+
+    g = sub.add_parser("gateway", help="serve an MCP server's tools through the kernel (stdio)",
+                       description="Start the MCP server named after -- and relay the protocol to it, running "
+                                   "every tools/call through the kernel. Point the MCP client at this command "
+                                   "instead of the server's.")
+    g.add_argument("--policy", required=True)
+    g.add_argument("--agent", default=None, help="the root grant's name (default: the policy's)")
+    g.add_argument("--audit", default=None, help="append every decision to this JSONL file")
+    g.add_argument("--prefix", default="", help="the server's tools are named <prefix><tool> in the policy")
+    g.add_argument("--allow", action="append", default=[], choices=sorted(("resources", "prompts")),
+                   help="also relay resources/read or prompts/get (content that reaches the model "
+                        "without a tool call)")
+    g.add_argument("--classify", action="append", default=[], metavar="TOOL=LEVEL",
+                   help="classification of what a tool returns (public, internal, confidential, restricted)")
+    g.add_argument("server", nargs=argparse.REMAINDER, help="-- the server's command and arguments")
+    g.set_defaults(handler=_gateway)
+
+    h = sub.add_parser("hook", help="Claude Code PreToolUse hook: refuse tool calls the policy forbids",
+                       description="Reads a Claude Code PreToolUse payload on stdin. Exits 2 with the reason on "
+                                   "stderr to block the call, 0 to let Claude Code's own rules decide.")
+    h.add_argument("--policy", required=True)
+    h.add_argument("--agent", default="claude-code")
+    h.add_argument("--audit", default=None, help="append each decision to this JSONL file")
+    h.set_defaults(handler=_hook)
 
     args = p.parse_args(argv)
     try:

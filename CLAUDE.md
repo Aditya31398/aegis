@@ -23,7 +23,7 @@ which is what makes the tooling usable as a service.
 pip install -e ".[dev]"
 
 ruff check .
-pytest -q                                                    # 285 tests, all must pass
+pytest -q                                                    # 369 tests, all must pass
 aegis ratify  --policy policies/base.yaml
 aegis verify  --suites suites --policy policies/base.yaml --require-coverage
 aegis fuzz    --policy policies/base.yaml --iterations 20
@@ -66,7 +66,11 @@ failing, the fix is the code, not the test.
 6. **The live MCP client never calls a tool.** `mcp_client._ALLOWED_METHODS`
    is `initialize`, `notifications/initialized`, `tools/list` and nothing
    else. Do not add `tools/call` "just to probe" — auditing a server by
-   running its destructive tools is an incident, not an audit.
+   running its destructive tools is an incident, not an audit. The gateway
+   (`adapters/gateway.py`) is the one place that sends `tools/call`, and only
+   from the forwarder it registers per tool, which only `Kernel._execute`
+   reaches. `aegis hook` speaks Claude Code's exit codes, not ours: 2 blocks,
+   anything else lets the call run, so every failure there must return 2.
 7. **Exit codes are a contract.** `0` pass, `1` findings, `2` bad input,
    `3` internal error. Never let an exception escape as exit 1: a pipeline
    that cannot tell a hole from a crash learns to ignore both. Malformed
@@ -121,8 +125,10 @@ aegis/
   adapters/mcp.py ingest → synthesize → harden
   adapters/mcp_client.py  live handshake (HTTP/stdio), listing-only
   adapters/toolspec.py    OpenAI / Anthropic / LangChain -> the same surface
+  adapters/gateway.py     `aegis gateway`: an MCP server behind the kernel (stdio relay, tools/call via invoke)
+  adapters/claude_code.py `aegis hook`: Claude Code PreToolUse decisions (stateless, never approves)
   constitution.yaml   shipped in the wheel
-  templates/      what `aegis init` scaffolds; must equal the repo copies
+  templates/      what `aegis init` scaffolds (must equal the repo copies), and claude-code.yaml for the hook
   corpus/         the adversarial payload corpus: DATA, versioned, swappable
 aegis/conformance/
   cli.py          the `aegis` command; exit codes defined here

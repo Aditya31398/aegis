@@ -8,6 +8,28 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 
 ## [Unreleased]
 
+### Added
+- **`aegis gateway`: an MCP server behind the kernel.** Configure an MCP client to start
+  `aegis gateway --policy p.yaml -- <server command>` instead of the server. The gateway relays the protocol
+  and runs every `tools/call` through `Kernel.invoke` -- allowlist, argument constraints, budget, data and
+  integrity guards, audit -- so the server only sees calls the kernel admitted, and a refusal reaches the
+  model as a tool error. `tools/list` is filtered to the grant; the server's tools are registered with their
+  inferred effects and the policy is ratified against them (until it is, every call is refused);
+  `resources/read` and `prompts/get` need `--allow`; unknown methods are refused; server-to-client requests
+  pass through. `--prefix` lines the server's tools up with `aegis mcp`'s hardened policy, so an audit's
+  output can be enforced as it is. The audit client is unchanged: it still never calls a tool.
+- **`aegis hook`: Claude Code's own tools under a policy.** A `PreToolUse` hook that decides each call with
+  the kernel and blocks a refusal (exit 2, the reason to the model). It never approves a call, so Claude
+  Code's own permission rules still apply, and every failure blocks. A starter policy,
+  `aegis/templates/claude-code.yaml`, ratifies against Claude Code's tools. Stateless: budgets and taint are
+  the gateway's and the in-process kernel's.
+
+### Fixed
+- The `api_key` pattern missed keys as providers issue them now: segmented prefixes (`sk-ant-api03-`,
+  `sk-proj-`, `sk-svcacct-`), GitHub fine-grained and OAuth tokens, Slack tokens, AWS access key ids and
+  Google API keys. It now finds them, and a hyphenated word starting `sk-` without a digit isn't taken for one.
+- `aegis mcp --server-cmd` on Windows kept the quotes around a quoted program path and couldn't start it.
+
 ## [0.6.0] - 2026-10-07
 
 Two ways to take authority from an agent short of revoking it: `Kernel.restrict` removes tools or budget from a

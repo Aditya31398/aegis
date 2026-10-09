@@ -49,6 +49,13 @@ The live MCP client sends only `initialize`, `notifications/initialized` and
 make it send anything else is in scope and high severity. `--server-cmd`
 executes the command you give it, by design.
 
+`aegis gateway` does call tools, and only through `Kernel.invoke`: the forwarder
+registered for each server tool is reached from `Kernel._execute` alone. A way
+to get a `tools/call` to the server that the kernel did not admit, to see a tool
+the grant doesn't hold in `tools/list`, or to read a resource or prompt without
+`--allow`, is in scope and high severity. So is a way to make `aegis hook` exit
+with anything but 2 for a call the policy refuses, or for a failure.
+
 Findings from the audit tool describe what a *schema* permits. They are not a
 penetration test of a running service, and nothing in the audit path executes a
 tool against real infrastructure.

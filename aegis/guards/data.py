@@ -91,7 +91,13 @@ _PATTERNS: dict[str, re.Pattern] = {
     "ssn": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
     "aadhaar": re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b"),
     "ip": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
-    "api_key": re.compile(r"\b(?:sk|pk|ghp|xox[baprs])[-_][A-Za-z0-9]{16,}\b"),
+    # Provider keys as they are issued now: segmented prefixes (sk-ant-api03-, sk-proj-, sk_live_), GitHub,
+    # Slack, AWS and Google. The random tail must hold a digit, so a hyphenated word ("sk-loading-spinner-big")
+    # isn't a key.
+    "api_key": re.compile(
+        r"\b(?:(?:sk|pk|rk)[-_](?:[A-Za-z0-9]{2,12}[-_]){0,3}(?=[A-Za-z_-]*\d)[A-Za-z0-9_-]{16,}"
+        r"|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-(?=[A-Za-z-]*\d)[A-Za-z0-9-]{10,}"
+        r"|AKIA[0-9A-Z]{16}\b|AIza[0-9A-Za-z_-]{35})"),
     "private_key": re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
 }
 
