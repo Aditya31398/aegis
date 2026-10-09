@@ -275,8 +275,7 @@ def test_the_cli_serves_a_client_over_stdio(tmp_path):
             while m["id"] not in replies:
                 r = json.loads(p.stdout.readline())
                 replies[r.get("id")] = r
-    p.stdin.close()
-    _, err = p.communicate(timeout=30)
+    _, err = p.communicate(timeout=30)          # closes stdin: the client hangs up, and the gateway exits
     assert p.returncode == 0
     assert replies[2]["result"]["content"][0]["text"] == "contents of /workspace/x"
     assert replies[3]["result"]["isError"] is True
