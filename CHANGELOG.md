@@ -8,6 +8,12 @@ fingerprints, and the `aegis` Python API exported from `aegis/__init__.py`.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-19
+
+Aegis reaches tools that no in-process kernel mediates: any MCP server, behind `aegis gateway`, and Claude Code's
+own tools, under `aegis hook`. Nothing is removed or renamed; the one new rule id (`gateway.not_ratified`) is an
+addition, and the audit client still never calls a tool. AgentDynamics 0.10 reads both audit logs.
+
 ### Added
 - **`aegis gateway`: an MCP server behind the kernel.** Configure an MCP client to start
   `aegis gateway --policy p.yaml -- <server command>` instead of the server. The gateway relays the protocol

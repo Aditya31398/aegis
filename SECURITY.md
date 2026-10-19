@@ -8,7 +8,8 @@ upgrades, so a new check arrives in a reviewed PR.
 
 | Version | Supported |
 |---|---|
-| 0.4.x | yes |
+| 0.7.x | yes |
+| < 0.7 | no: upgrade (nothing was removed or renamed since 0.4) |
 | < 0.4 | no (0.1–0.3 were never on PyPI) |
 
 ## Verifying what you install
