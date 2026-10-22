@@ -4,13 +4,13 @@
 #   docker run --rm -v "$PWD:/work" ghcr.io/aditya31398/aegis audit --policy policies/base.yaml
 #   docker run --rm ghcr.io/aditya31398/aegis mcp --server https://host/mcp --out /tmp/out
 
-FROM python:3.12-slim AS build
+FROM python:3.14-slim AS build
 WORKDIR /src
 COPY pyproject.toml README.md LICENSE ./
 COPY aegis ./aegis
 RUN pip wheel --no-cache-dir --no-deps -w /dist .
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 LABEL org.opencontainers.image.title="aegis" \
       org.opencontainers.image.description="Constraint enforcement and audit for AI agent tool surfaces" \
       org.opencontainers.image.source="https://github.com/Aditya31398/aegis" \
